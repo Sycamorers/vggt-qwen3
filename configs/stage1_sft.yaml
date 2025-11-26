@@ -1,0 +1,50 @@
+model:
+  name_or_path: Qwen/Qwen3-4B-Instruct-2507
+  tokenizer_path: Qwen/Qwen3-4B-Instruct-2507
+  vision_backbone: third_party/vggt
+  num_vis_tokens: 64
+  geom_tokens: 0
+  projector: configs/perceiver_small.yaml
+  freeze_vision: true
+  freeze_text_layers: []
+
+data:
+  datasets:
+    llava: data/processed/llava/*.json
+    sharegpt4v: data/processed/sharegpt4v/*.json
+    docvqa: data/processed/docvqa/*.json
+    chartqa: data/processed/chartqa/*.json
+  mix_ratio:
+    llava: 0.6
+    sharegpt4v: 0.2
+    docvqa: 0.1
+    chartqa: 0.1
+  num_views: 1
+  image_size: 448
+  max_length: 4096
+  view_dropout: 0.0
+
+train:
+  precision: bf16
+  optimizer: adamw
+  lr: 5.0e-5
+  proj_lr: 1.0e-3
+  weight_decay: 0.1
+  warmup_ratio: 0.03
+  batch_size_per_gpu: 8
+  grad_accum: 16
+  max_steps: 20000
+  save_every_steps: 1000
+  eval_every_steps: 2000
+  log_every_steps: 20
+  seed: 42
+
+lora:
+  enable: true
+  rank: 16
+  alpha: 16
+  dropout: 0.05
+  target_modules:
+    - q_proj
+    - v_proj
+    - o_proj

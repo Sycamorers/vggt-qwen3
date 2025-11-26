@@ -1,0 +1,51 @@
+# Byte-compiled files
+__pycache__/
+*.py[cod]
+
+# Runtime + workspace artifacts
+.DS_Store
+.env
+.venv
+*.log
+
+# Hugging Face cache
+.hf_cache/
+
+# Training outputs
+ckpts/*
+!ckpts/.gitkeep
+logs/*
+!logs/.gitkeep
+
+# Data blobs
+data/raw/*
+!data/raw/.gitkeep
+data/processed/*
+!data/processed/.gitkeep
+
+# Third-party repos (clone locally)
+third_party/*
+!third_party/.gitkeep
+!third_party/README.md
+
+# Large model checkpoints
+*.pt
+*.pth
+*.bin
+*.safetensors
+*.ckpt
+
+# Environment + packaging noise
+env/.mamba/
+env/.conda/
+*.lock
+
+# Temporary files
+*.tmp
+*.swp
+*~
+
+# IDE
+.vscode/
+.idea/
+*.iml

@@ -1,0 +1,6 @@
+latent_dim: 4096
+num_latents: 128
+num_heads: 8
+num_layers: 6
+ffn_dim: 16384
+dropout: 0.1

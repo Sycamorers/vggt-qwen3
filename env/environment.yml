@@ -1,0 +1,32 @@
+name: roomplan
+channels:
+  - pytorch
+  - nvidia
+  - conda-forge
+dependencies:
+  - python=3.10
+  - pip
+  - pytorch=2.4.0
+  - pytorch-cuda=12.8
+  - torchvision
+  - torchaudio
+  - numpy
+  - scipy
+  - pyyaml
+  - tqdm
+  - pillow
+  - opencv
+  - pip:
+      - transformers>=4.51.0
+      - "huggingface-hub>=0.34,<1.0"
+      - "markupsafe>=2.1,<3"
+      - accelerate
+      - datasets
+      - peft
+      - bitsandbytes
+      - timm
+      - sentencepiece
+      - tiktoken
+      - deepspeed
+      - xformers
+      - wandb

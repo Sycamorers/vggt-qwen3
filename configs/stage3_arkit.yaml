@@ -1,0 +1,49 @@
+model:
+  name_or_path: Qwen/Qwen3-4B-Instruct-2507
+  tokenizer_path: Qwen/Qwen3-4B-Instruct-2507
+  vision_backbone: third_party/vggt
+  num_vis_tokens: 96
+  geom_tokens: 8
+  projector: configs/perceiver_small.yaml
+  freeze_vision: true
+  freeze_text_layers: [0, 1]
+
+data:
+  datasets:
+    arkit_synth: data/processed/arkit_synth/*.json
+  mix_ratio:
+    arkit_synth: 1.0
+  num_views: 10
+  image_size: 448
+  max_length: 4096
+  view_dropout: 0.2
+
+train:
+  precision: bf16
+  optimizer: adamw
+  lr: 2.0e-5
+  proj_lr: 2.0e-4
+  weight_decay: 0.05
+  warmup_ratio: 0.05
+  batch_size_per_gpu: 4
+  grad_accum: 64
+  max_steps: 10000
+  save_every_steps: 1000
+  eval_every_steps: 2000
+  log_every_steps: 20
+  seed: 42
+
+loss_heads:
+  language: 1.0
+  action_json: 1.0
+  geometry_consistency: 0.5
+
+lora:
+  enable: true
+  rank: 32
+  alpha: 64
+  dropout: 0.05
+  target_modules:
+    - q_proj
+    - v_proj
+    - o_proj
