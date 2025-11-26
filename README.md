@@ -21,12 +21,27 @@ pip install -e third_party/vggt/
 python scripts/prep/prepare_scanqa.py
 python scripts/prep/prepare_sqa3d.py
 
-# 5. Run training
-./train.sh debug  # Quick 100-step test
-./train.sh stage2 # Full training
+# 5. Run training (supports 1-8 GPUs)
+./train.sh debug        # Quick test with 2 GPUs
+./train.sh full 4       # Full training with 4 GPUs
+./train.sh debug 8      # Debug with 8 GPUs
 
 # 6. Monitor with TensorBoard
 tensorboard --logdir ckpts/stage2_3d_debug/logs/roomplan --port 6006
+```
+
+**Training Script Usage:**
+```bash
+./train.sh [mode] [num_gpus]
+
+# mode:     debug | full (default: full)
+# num_gpus: 1-8 (default: 2)
+
+# Examples:
+./train.sh                # Full training, 2 GPUs
+./train.sh debug          # Debug mode, 2 GPUs  
+./train.sh full 4         # Full training, 4 GPUs
+./train.sh debug 8        # Debug mode, 8 GPUs
 ```
 
 **📚 New to this repo?** Start with:
@@ -59,7 +74,9 @@ See **[TRAINING_FIXES.md](TRAINING_FIXES.md)** for detailed technical informatio
 - **Real-time monitoring**: Progress bars with loss, LR, speed, and ETA
 - **TensorBoard integration**: Automatic logging of metrics  
 - **Comprehensive docs**: Setup guides, troubleshooting, and monitoring
-- **Verified working**: Successfully trains on 2× H100 GPUs with DeepSpeed ZeRO-3
+- **Flexible GPU scaling**: Supports 1-8 GPUs with automatic configuration
+- **Cache management**: All caches relocate to project directory (no NFS issues)
+- **Verified working**: Successfully trains on multi-GPU setups with DeepSpeed ZeRO-3
 
 ---T-Qwen3 RoomPlan Pipeline
 
@@ -70,7 +87,8 @@ End-to-end training pipeline that injects VGGT’s multi-view perception into Qw
 ## Highlights
 
 - **Three-phase curriculum** – progressively teach instruction following, multi-view 3D reasoning, and ARKit-specific action heads (configs in `configs/`).
-- **HiPerGator-ready** – Slurm templates target single-node 2×B200 runs with DeepSpeed ZeRO-3 and torchrun helpers.
+- **Flexible GPU scaling** – Training script supports 1-8 GPUs with automatic DeepSpeed ZeRO-3 configuration.
+- **HiPerGator-ready** – Slurm templates target single-node multi-GPU runs with optimized cache management.
 - **Deterministic data pipelines** – scripts in `scripts/prep/` transform raw ScanQA / SQA3D / ARKitScenes data into JSONL shards consumed by trainers.
 - **Modular vision-text stack** – drop in your own `Qwen3` and `VGGT` repos under `third_party/`, swap projector configs, or extend LoRA heads without touching the core trainer.
 
@@ -105,7 +123,7 @@ vggt-qwen3-roomplan/
 
 ## Prerequisites
 
-- **Hardware**: HiPerGator B200 nodes (2 × NVIDIA H100 80GB, HDR IB). Adjust batch sizes if running elsewhere.
+- **Hardware**: NVIDIA GPUs with CUDA support (tested on H100s, supports 1-8 GPUs). Adjust batch sizes based on GPU memory.
 - **Accounts & Access**:
   - UF Research Computing account with Slurm access and a project allocation.
   - Dataset licenses for ARKitScenes, ScanQA, SQA3D, ReferIt3D, ScanRefer, Scan2Cap, etc.
@@ -235,6 +253,11 @@ pip install -e third_party/Qwen3  # if editable install works for your platform
 | Stage 2 – 3D Alignment | `configs/stage2_3d.yaml` | 8 views @ 448px | ScanQA, SQA3D, ScanRefer, ReferIt3D, Scan2Cap | Introduce geometric tokens, multi-view fusion, and freeze lower text layers for stability. |
 | Stage 3 – RoomPlan Actions | `configs/stage3_arkit.yaml` | 10 views @ 448px | Synthetic ARKitScenes instructions | Jointly optimize language + JSON action heads + geometry consistency losses for executable RoomPlan outputs. |
 
+**GPU Scaling:** The training script automatically adjusts for 1-8 GPUs:
+- Effective batch size = `batch_per_gpu (6) × grad_accum (32) × num_gpus`
+- Example: 4 GPUs → effective batch of 768
+- DeepSpeed config generated dynamically based on GPU count
+
 Shared practices:
 
 - **Vision Backbone**: `third_party/vggt` is referenced directly; keep it frozen to prevent catastrophic forgetting unless you have compute for joint finetuning.
@@ -245,6 +268,30 @@ Shared practices:
 ---
 
 ## Launching Jobs
+
+### Interactive training (any GPU count)
+
+Quick examples with the training script:
+
+```bash
+# Debug mode with 2 GPUs (default)
+./train.sh debug
+
+# Full training with 4 GPUs  
+./train.sh full 4
+
+# Debug with all 8 GPUs
+./train.sh debug 8
+
+# Use train_fixed.sh for cache management and NCCL fixes
+./train_fixed.sh full 4
+```
+
+The script automatically:
+- Validates GPU count (1-8)
+- Generates appropriate accelerate config
+- Calculates effective batch size
+- Sets up DeepSpeed ZeRO-3
 
 ### Local / interactive dry run
 

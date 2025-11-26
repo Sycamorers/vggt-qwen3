@@ -1,22 +1,22 @@
 #!/bin/bash
 #
-# VGGT-Qwen3 Training Script
-# Run this script to start training the multi-view 3D VQA model
+# VGGT-Qwen3 Training Script (FIXED)
+# Includes fixes for NCCL timeout, disk space, and cache issues
 #
 # Usage:
-#   ./train.sh [mode] [num_gpus]
+#   ./train_fixed.sh [mode] [num_gpus]
 #
 #   mode:      debug | full (default: full)
 #   num_gpus:  1-8 (default: 2)
 #
 # Examples:
-#   ./train.sh                  # Full training with 2 GPUs
-#   ./train.sh debug            # Debug mode with 2 GPUs
-#   ./train.sh full 4           # Full training with 4 GPUs
-#   ./train.sh debug 8          # Debug mode with 8 GPUs
+#   ./train_fixed.sh                  # Full training with 2 GPUs
+#   ./train_fixed.sh debug            # Debug mode with 2 GPUs
+#   ./train_fixed.sh full 4           # Full training with 4 GPUs
+#   ./train_fixed.sh debug 8          # Debug mode with 8 GPUs
 #
 
-set -e  # Exit on error
+set -e
 
 # Configuration
 PROJECT_DIR="/blue/hmedeiros/qinruoyao/roomplan/vggt-qwen3-roomplan"
@@ -30,8 +30,8 @@ NUM_GPUS="${2:-2}"
 # Validate NUM_GPUS
 if ! [[ "$NUM_GPUS" =~ ^[1-8]$ ]]; then
     echo "❌ Error: NUM_GPUS must be between 1 and 8"
-    echo "   Usage: ./train.sh [mode] [num_gpus]"
-    echo "   Example: ./train.sh full 4"
+    echo "   Usage: ./train_fixed.sh [mode] [num_gpus]"
+    echo "   Example: ./train_fixed.sh full 4"
     exit 1
 fi
 
@@ -55,7 +55,7 @@ ACCELERATE_CONFIG="configs/accelerate_${NUM_GPUS}gpu.yaml"
 
 # Print configuration
 echo "================================================================================"
-echo "VGGT-Qwen3 Training Configuration"
+echo "VGGT-Qwen3 Training Configuration (FIXED)"
 echo "================================================================================"
 echo "Project Directory: $PROJECT_DIR"
 echo "Config File:       $CONFIG_FILE"
@@ -70,6 +70,58 @@ echo ""
 
 # Change to project directory
 cd "$PROJECT_DIR"
+
+# =============================================================================
+# CRITICAL FIXES FOR NCCL/CACHE ISSUES
+# =============================================================================
+
+echo "🔧 Applying fixes..."
+
+# Fix 1: Relocate ALL caches to project directory (non-NFS storage)
+export TRITON_CACHE_DIR="$PROJECT_DIR/.cache/triton"
+export TORCH_HOME="$PROJECT_DIR/.cache/torch"
+export HF_HOME="$PROJECT_DIR/.cache/huggingface"
+export TRANSFORMERS_CACHE="$PROJECT_DIR/.cache/transformers"
+export HF_DATASETS_CACHE="$PROJECT_DIR/.cache/datasets"
+export PYTHONPYCACHEPREFIX="$PROJECT_DIR/.cache/python"
+export PIP_CACHE_DIR="$PROJECT_DIR/.cache/pip"
+export TMPDIR="$PROJECT_DIR/.cache/tmp"
+export TEMP="$PROJECT_DIR/.cache/tmp"
+export TMP="$PROJECT_DIR/.cache/tmp"
+
+# Create temp directory
+mkdir -p "$PROJECT_DIR/.cache/tmp"
+
+# Fix 2: NCCL timeout and debugging settings
+export NCCL_TIMEOUT=3600                    # Increase timeout to 1 hour
+export NCCL_DEBUG=INFO                      # Enable NCCL debugging
+export NCCL_DEBUG_SUBSYS=ALL                # Debug all subsystems
+export NCCL_IB_DISABLE=0                    # Enable InfiniBand if available
+export NCCL_NET_GDR_LEVEL=2                 # GPU Direct RDMA
+export TORCH_NCCL_ASYNC_ERROR_HANDLING=1    # Better error reporting
+export TORCH_NCCL_TRACE_BUFFER_SIZE=10000   # Enable flight recorder
+
+# Fix 3: DeepSpeed settings
+export CUDA_LAUNCH_BLOCKING=0               # Async kernel launches
+export PYTORCH_CUDA_ALLOC_CONF="max_split_size_mb:512"  # Memory allocation
+
+# Fix 4: OMP threads (suppress warning)
+export OMP_NUM_THREADS=1
+
+# Fix 5: Prevent hanging on exit
+export NCCL_ASYNC_ERROR_HANDLING=1
+
+echo "✅ Environment variables set:"
+echo "   TRITON_CACHE_DIR=$TRITON_CACHE_DIR"
+echo "   TORCH_HOME=$TORCH_HOME"
+echo "   HF_HOME=$HF_HOME"
+echo "   TRANSFORMERS_CACHE=$TRANSFORMERS_CACHE"
+echo "   HF_DATASETS_CACHE=$HF_DATASETS_CACHE"
+echo "   PYTHONPYCACHEPREFIX=$PYTHONPYCACHEPREFIX"
+echo "   TMPDIR=$TMPDIR"
+echo "   NCCL_TIMEOUT=$NCCL_TIMEOUT"
+echo "   NCCL_DEBUG=$NCCL_DEBUG"
+echo ""
 
 # Verify environment
 echo "📋 Verifying environment..."
@@ -86,12 +138,17 @@ if ! python -c "import torch; assert torch.cuda.is_available()" 2>/dev/null; the
 fi
 echo "✅ CUDA available"
 
+# Check GPU count
+AVAILABLE_GPUS=$(python -c "import torch; print(torch.cuda.device_count())")
+if [ "$AVAILABLE_GPUS" -lt "$NUM_GPUS" ]; then
+    echo "❌ Error: Requested $NUM_GPUS GPUs but only $AVAILABLE_GPUS available"
+    exit 1
+fi
+echo "✅ $AVAILABLE_GPUS GPUs available (using $NUM_GPUS)"
+
 # Verify data
 if [ ! -f "data/processed/scanqa/train.jsonl" ] || [ ! -f "data/processed/sqa3d/train.jsonl" ]; then
     echo "❌ Error: Training data not found in data/processed/"
-    echo "   Expected:"
-    echo "     - data/processed/scanqa/train.jsonl"
-    echo "     - data/processed/sqa3d/train.jsonl"
     exit 1
 fi
 echo "✅ Training data found"
@@ -127,16 +184,13 @@ echo ""
 
 # Start training
 echo "🎯 Starting training..."
-echo "   Logs will be saved to: $OUTPUT_DIR/logs/"
 echo "   Checkpoints saved every 1500 steps to: $OUTPUT_DIR/checkpoint-*/"
-echo ""
-echo "   Monitor progress:"
-echo "     tensorboard --logdir $OUTPUT_DIR/logs"
 echo ""
 echo "================================================================================"
 echo ""
 
-# Run training
+# Run training with better error handling
+set +e  # Don't exit on error yet
 accelerate launch \
     --config_file "$ACCELERATE_CONFIG" \
     src/train/train_sft.py \
@@ -144,24 +198,25 @@ accelerate launch \
     --output_dir "$OUTPUT_DIR" \
     --max_steps "$MAX_STEPS"
 
-# Training completed
 EXIT_CODE=$?
+set -e
 
+# Training completed or failed
 echo ""
 echo "================================================================================"
 if [ $EXIT_CODE -eq 0 ]; then
     echo "✅ Training completed successfully!"
     echo ""
-    echo "📊 View training curves:"
-    echo "   tensorboard --logdir $OUTPUT_DIR/logs"
-    echo ""
-    echo "💾 Final checkpoint:"
-    echo "   $OUTPUT_DIR/checkpoint-$MAX_STEPS/"
+    echo "💾 Final checkpoint: $OUTPUT_DIR/checkpoint-$MAX_STEPS/"
 else
     echo "❌ Training failed with exit code $EXIT_CODE"
     echo ""
-    echo "🔍 Check logs for errors:"
-    echo "   tail -100 $OUTPUT_DIR/logs/*/events.out.tfevents.*"
+    echo "🔍 Check the output above for errors"
+    echo ""
+    echo "💡 Common issues:"
+    echo "   - NCCL timeout: Check network/GPU communication"
+    echo "   - OOM: Reduce batch_size_per_gpu or grad_accum"
+    echo "   - Data loading: Check data files exist"
 fi
 echo "================================================================================"
 

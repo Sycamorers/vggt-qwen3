@@ -11,6 +11,9 @@ __pycache__/
 # Hugging Face cache
 .hf_cache/
 
+# All caches relocated to project directory
+.cache/
+
 # Training outputs
 ckpts/*
 !ckpts/.gitkeep
