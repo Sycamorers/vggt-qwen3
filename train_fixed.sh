@@ -55,8 +55,15 @@ GRAD_ACCUM=${GRAD_ACCUM:-32}
 function probe_and_adjust_batch() {
     # Get smallest free memory across the first NUM_GPUS devices (MiB)
     local min_free=999999
-    for i in $(seq 0 $((NUM_GPUS-1))); do
-        free_mb=$(nvidia-smi --query-gpu=memory.free --format=csv,noheader,nounits -i $i | tr -d '\r' | tail -n1)
+        # Determine device indices to probe. Respect CUDA_VISIBLE_DEVICES if set.
+        if [ -n "$CUDA_VISIBLE_DEVICES" ]; then
+            dev_list=$(echo $CUDA_VISIBLE_DEVICES | tr ',' ' ' | awk '{for(i=1;i<=NF;i++) print $i}')
+        else
+            # Default to 0..NUM_GPUS-1
+            dev_list=$(seq 0 $((NUM_GPUS-1)))
+        fi
+        for i in $dev_list; do
+            free_mb=$(nvidia-smi --query-gpu=memory.free --format=csv,noheader,nounits -i $i 2>/dev/null | tr -d '\r' | tail -n1)
         if [ -z "$free_mb" ]; then
             free_mb=0
         fi
@@ -119,15 +126,32 @@ EFFECTIVE_BATCH=$((BATCH_PER_GPU * GRAD_ACCUM * NUM_GPUS))
     # If running under Slurm, further constrain defaults when cgroup mem limit is present
     if [ -n "$SLURM_JOB_ID" ]; then
         echo "🔎 Detected Slurm job: $SLURM_JOB_ID"
-        # Try to read cgroup memory limit (cgroup v2 path)
-        CGROUP_MEM_LIMIT=$(awk '/memory.max/ {print $2; exit}' /proc/self/cgroup 2>/dev/null || true)
-        # As fallback, parse memory limit file if available
-        if [ -f "/sys/fs/cgroup/memory.max" ]; then
-            CGROUP_MEM_LIMIT_RAW=$(cat /sys/fs/cgroup/memory.max 2>/dev/null || true)
-        else
-            CGROUP_MEM_LIMIT_RAW=${CGROUP_MEM_LIMIT:-""}
+        CGROUP_MEM_LIMIT_RAW=""
+        # Try cgroup v2 memory.max under the job's cgroup
+        for path in /sys/fs/cgroup/*/memory.max /sys/fs/cgroup/memory.max; do
+            if [ -f "$path" ]; then
+                val=$(cat "$path" 2>/dev/null || true)
+                # numeric check
+                if [[ "$val" =~ ^[0-9]+$ ]]; then
+                    CGROUP_MEM_LIMIT_RAW=$val
+                    break
+                fi
+            fi
+        done
+        # Fallback: try reading memory limit via /proc/self/cgroup mapping
+        if [ -z "$CGROUP_MEM_LIMIT_RAW" ]; then
+            grp=$(awk -F: '$3 ~ /memory/ {print $3; exit}' /proc/self/cgroup 2>/dev/null || true)
+            if [ -n "$grp" ]; then
+                path="/sys/fs/cgroup/$grp/memory.max"
+                if [ -f "$path" ]; then
+                    val=$(cat "$path" 2>/dev/null || true)
+                    if [[ "$val" =~ ^[0-9]+$ ]]; then
+                        CGROUP_MEM_LIMIT_RAW=$val
+                    fi
+                fi
+            fi
         fi
-        # If a numeric cgroup limit exists, convert to MB and compare
+
         if [[ "$CGROUP_MEM_LIMIT_RAW" =~ ^[0-9]+$ ]]; then
             CGROUP_MEM_MB=$((CGROUP_MEM_LIMIT_RAW/1024/1024))
             echo "🔎 Slurm cgroup memory limit: ${CGROUP_MEM_MB} MiB"
@@ -138,6 +162,8 @@ EFFECTIVE_BATCH=$((BATCH_PER_GPU * GRAD_ACCUM * NUM_GPUS))
                 DATALOADER_NUM_WORKERS=0
                 echo "   -> BATCH_PER_GPU=$BATCH_PER_GPU, GRAD_ACCUM=$GRAD_ACCUM, DATALOADER_NUM_WORKERS=$DATALOADER_NUM_WORKERS"
             fi
+        else
+            echo "ℹ️  No numeric cgroup memory limit discovered; proceeding with probe-based heuristics"
         fi
     fi
 
