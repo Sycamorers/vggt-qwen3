@@ -116,6 +116,31 @@ EFFECTIVE_BATCH=$((BATCH_PER_GPU * GRAD_ACCUM * NUM_GPUS))
         echo "✅ DATALOADER_NUM_WORKERS=$DATALOADER_NUM_WORKERS"
     fi
 
+    # If running under Slurm, further constrain defaults when cgroup mem limit is present
+    if [ -n "$SLURM_JOB_ID" ]; then
+        echo "🔎 Detected Slurm job: $SLURM_JOB_ID"
+        # Try to read cgroup memory limit (cgroup v2 path)
+        CGROUP_MEM_LIMIT=$(awk '/memory.max/ {print $2; exit}' /proc/self/cgroup 2>/dev/null || true)
+        # As fallback, parse memory limit file if available
+        if [ -f "/sys/fs/cgroup/memory.max" ]; then
+            CGROUP_MEM_LIMIT_RAW=$(cat /sys/fs/cgroup/memory.max 2>/dev/null || true)
+        else
+            CGROUP_MEM_LIMIT_RAW=${CGROUP_MEM_LIMIT:-""}
+        fi
+        # If a numeric cgroup limit exists, convert to MB and compare
+        if [[ "$CGROUP_MEM_LIMIT_RAW" =~ ^[0-9]+$ ]]; then
+            CGROUP_MEM_MB=$((CGROUP_MEM_LIMIT_RAW/1024/1024))
+            echo "🔎 Slurm cgroup memory limit: ${CGROUP_MEM_MB} MiB"
+            if [ "$CGROUP_MEM_MB" -lt 65536 ]; then
+                echo "⚠️  Slurm memory limit is <64GB: enforcing conservative training settings"
+                BATCH_PER_GPU=1
+                GRAD_ACCUM=4
+                DATALOADER_NUM_WORKERS=0
+                echo "   -> BATCH_PER_GPU=$BATCH_PER_GPU, GRAD_ACCUM=$GRAD_ACCUM, DATALOADER_NUM_WORKERS=$DATALOADER_NUM_WORKERS"
+            fi
+        fi
+    fi
+
     # Set PYTORCH_ALLOC_CONF which replaces deprecated PYTORCH_CUDA_ALLOC_CONF
     export PYTORCH_ALLOC_CONF=${PYTORCH_ALLOC_CONF:-"max_split_size_mb:256"}
     echo "🔧 PYTORCH_ALLOC_CONF set: $PYTORCH_ALLOC_CONF"
