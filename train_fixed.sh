@@ -24,6 +24,13 @@ CONFIG_FILE="configs/stage2_3d.yaml"
 OUTPUT_DIR="ckpts/stage2_3d"
 
 # Parse arguments
+# Support optional --safe flag: usage: ./train_fixed.sh [--safe] [mode] [num_gpus]
+SAFE_MODE=0
+if [ "${1:-}" = "--safe" ]; then
+    SAFE_MODE=1
+    shift
+fi
+
 MODE="${1:-full}"
 NUM_GPUS="${2:-2}"
 
@@ -43,6 +50,15 @@ if [ "$MODE" = "debug" ]; then
 else
     echo "🚀 Running FULL training (30,000 steps)"
     MAX_STEPS=30000
+fi
+
+if [ "$SAFE_MODE" -eq 1 ]; then
+    echo "🔒 SAFE MODE enabled: forcing conservative settings"
+    BATCH_PER_GPU=1
+    GRAD_ACCUM=4
+    DATALOADER_NUM_WORKERS=0
+    EFFECTIVE_BATCH=$((BATCH_PER_GPU * GRAD_ACCUM * NUM_GPUS))
+    echo "   -> BATCH_PER_GPU=$BATCH_PER_GPU, GRAD_ACCUM=$GRAD_ACCUM, DATALOADER_NUM_WORKERS=$DATALOADER_NUM_WORKERS, EFFECTIVE_BATCH=$EFFECTIVE_BATCH"
 fi
 
 # Calculate effective batch size
