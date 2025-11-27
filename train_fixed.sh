@@ -47,8 +47,9 @@ fi
 
 # Calculate effective batch size
 # Default training sizes (may be auto-adjusted below if GPUs are constrained)
-BATCH_PER_GPU=6
-GRAD_ACCUM=32
+# Allow environment overrides for expert users
+BATCH_PER_GPU=${BATCH_PER_GPU:-6}
+GRAD_ACCUM=${GRAD_ACCUM:-32}
 
 # Auto-adjust BATCH_PER_GPU based on available GPU memory to avoid OOM/killed
 function probe_and_adjust_batch() {
@@ -90,6 +91,12 @@ EFFECTIVE_BATCH=$((BATCH_PER_GPU * GRAD_ACCUM * NUM_GPUS))
     HOST_FREE_MEM_MB=$(awk '/MemAvailable/ {printf "%d", $2/1024}' /proc/meminfo 2>/dev/null || echo 0)
     echo "🔎 Host available memory: ${HOST_FREE_MEM_MB} MiB"
 
+    # Early exit if host memory is critically low (<8GB)
+    if [ "$HOST_FREE_MEM_MB" -lt 8000 ]; then
+        echo "⛔ Host available memory < 8GB. Aborting to avoid repeated OOM kills."
+        exit 2
+    fi
+
     if [ "$HOST_FREE_MEM_MB" -lt 16000 ]; then
         echo "⚠️  Low host memory detected (<16GB). Lowering grad_accum to reduce peak host memory usage."
         GRAD_ACCUM=8
@@ -100,13 +107,28 @@ EFFECTIVE_BATCH=$((BATCH_PER_GPU * GRAD_ACCUM * NUM_GPUS))
         echo "✅ Host memory ok; using GRAD_ACCUM=$GRAD_ACCUM"
     fi
 
+    # Reduce data loader workers under low host memory to lower RSS usage
+    if [ "$HOST_FREE_MEM_MB" -lt 48000 ]; then
+        export DATALOADER_NUM_WORKERS=0
+        echo "⚠️  Low host memory: setting DATALOADER_NUM_WORKERS=$DATALOADER_NUM_WORKERS"
+    else
+        export DATALOADER_NUM_WORKERS=${DATALOADER_NUM_WORKERS:-8}
+        echo "✅ DATALOADER_NUM_WORKERS=$DATALOADER_NUM_WORKERS"
+    fi
+
     # Set PYTORCH_ALLOC_CONF which replaces deprecated PYTORCH_CUDA_ALLOC_CONF
-    export PYTORCH_ALLOC_CONF="max_split_size_mb:256"
+    export PYTORCH_ALLOC_CONF=${PYTORCH_ALLOC_CONF:-"max_split_size_mb:256"}
     echo "🔧 PYTORCH_ALLOC_CONF set: $PYTORCH_ALLOC_CONF"
 
     # Recompute effective batch size after adjustments
     EFFECTIVE_BATCH=$((BATCH_PER_GPU * GRAD_ACCUM * NUM_GPUS))
     echo "🔢 Adjusted settings -> BATCH_PER_GPU=$BATCH_PER_GPU, GRAD_ACCUM=$GRAD_ACCUM, EFFECTIVE_BATCH=$EFFECTIVE_BATCH"
+
+    # Log probes for post-mortem
+    mkdir -p "$PROJECT_DIR/.cache/logs"
+    probe_log="$PROJECT_DIR/.cache/logs/train_probe.log"
+    echo "$(date -u) GPU_FREE_MIN_MiB=$min_free HOST_FREE_MiB=$HOST_FREE_MEM_MB BATCH_PER_GPU=$BATCH_PER_GPU GRAD_ACCUM=$GRAD_ACCUM DATALOADER_NUM_WORKERS=$DATALOADER_NUM_WORKERS PYTORCH_ALLOC_CONF=$PYTORCH_ALLOC_CONF" >> "$probe_log"
+    echo "Probe log appended to $probe_log"
 
 # Generate accelerate config for this run
 ACCELERATE_CONFIG="configs/accelerate_${NUM_GPUS}gpu.yaml"
