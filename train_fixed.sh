@@ -46,8 +46,44 @@ else
 fi
 
 # Calculate effective batch size
+# Default training sizes (may be auto-adjusted below if GPUs are constrained)
 BATCH_PER_GPU=6
 GRAD_ACCUM=32
+
+# Auto-adjust BATCH_PER_GPU based on available GPU memory to avoid OOM/killed
+function probe_and_adjust_batch() {
+    # Get smallest free memory across the first NUM_GPUS devices (MiB)
+    local min_free=999999
+    for i in $(seq 0 $((NUM_GPUS-1))); do
+        free_mb=$(nvidia-smi --query-gpu=memory.free --format=csv,noheader,nounits -i $i | tr -d '\r' | tail -n1)
+        if [ -z "$free_mb" ]; then
+            free_mb=0
+        fi
+        if [ "$free_mb" -lt "$min_free" ]; then
+            min_free=$free_mb
+        fi
+    done
+
+    echo "🔎 Minimum free GPU memory across $NUM_GPUS GPUs: ${min_free} MiB"
+
+    # Conservative heuristics: require ~20GB per GPU for BATCH_PER_GPU=6 on H100-like devices
+    # Scale down BATCH_PER_GPU if free memory is low
+    if [ "$min_free" -lt 25000 ]; then
+        echo "⚠️  Low GPU memory detected. Reducing batch per GPU to 1"
+        BATCH_PER_GPU=1
+    elif [ "$min_free" -lt 40000 ]; then
+        echo "⚠️  Moderate GPU memory detected. Reducing batch per GPU to 2"
+        BATCH_PER_GPU=2
+    elif [ "$min_free" -lt 80000 ]; then
+        echo "⚠️  Ample GPU memory detected. Reducing batch per GPU to 4"
+        BATCH_PER_GPU=4
+    else
+        echo "✅ Using default BATCH_PER_GPU=$BATCH_PER_GPU"
+    fi
+}
+
+probe_and_adjust_batch
+
 EFFECTIVE_BATCH=$((BATCH_PER_GPU * GRAD_ACCUM * NUM_GPUS))
 
 # Generate accelerate config for this run
