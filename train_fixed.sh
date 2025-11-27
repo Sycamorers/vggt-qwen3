@@ -86,6 +86,28 @@ probe_and_adjust_batch
 
 EFFECTIVE_BATCH=$((BATCH_PER_GPU * GRAD_ACCUM * NUM_GPUS))
 
+    # Probe host available memory (MiB) and reduce grad accum if system memory is constrained
+    HOST_FREE_MEM_MB=$(awk '/MemAvailable/ {printf "%d", $2/1024}' /proc/meminfo 2>/dev/null || echo 0)
+    echo "🔎 Host available memory: ${HOST_FREE_MEM_MB} MiB"
+
+    if [ "$HOST_FREE_MEM_MB" -lt 16000 ]; then
+        echo "⚠️  Low host memory detected (<16GB). Lowering grad_accum to reduce peak host memory usage."
+        GRAD_ACCUM=8
+    elif [ "$HOST_FREE_MEM_MB" -lt 32000 ]; then
+        echo "⚠️  Moderate host memory detected (<32GB). Lowering grad_accum to 16."
+        GRAD_ACCUM=16
+    else
+        echo "✅ Host memory ok; using GRAD_ACCUM=$GRAD_ACCUM"
+    fi
+
+    # Set PYTORCH_ALLOC_CONF which replaces deprecated PYTORCH_CUDA_ALLOC_CONF
+    export PYTORCH_ALLOC_CONF="max_split_size_mb:256"
+    echo "🔧 PYTORCH_ALLOC_CONF set: $PYTORCH_ALLOC_CONF"
+
+    # Recompute effective batch size after adjustments
+    EFFECTIVE_BATCH=$((BATCH_PER_GPU * GRAD_ACCUM * NUM_GPUS))
+    echo "🔢 Adjusted settings -> BATCH_PER_GPU=$BATCH_PER_GPU, GRAD_ACCUM=$GRAD_ACCUM, EFFECTIVE_BATCH=$EFFECTIVE_BATCH"
+
 # Generate accelerate config for this run
 ACCELERATE_CONFIG="configs/accelerate_${NUM_GPUS}gpu.yaml"
 
