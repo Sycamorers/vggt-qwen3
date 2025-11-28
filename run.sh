@@ -4,9 +4,9 @@
 #SBATCH --mail-user=qinruoyao@ufl.edu  # Where to send mail
 #SBATCH --partition=hpg-b200             # Partition (b200 = 1 GPU per node)
 #SBATCH --nodes=1                    # Number of nodes
-#SBATCH --gpus-per-node=2            # GPUs per node
-#SBATCH --cpus-per-gpu=16            # CPUs per GPU
-#SBATCH --mem=512GB                  # Total memory requested
+#SBATCH --gpus-per-node=8            # GPUs per node
+#SBATCH --cpus-per-gpu=4            # CPUs per GPU
+#SBATCH --mem=128GB                  # Total memory requested
 #SBATCH --time=24:00:00              # Time limit hrs:min:sec
 #SBATCH --output=pytorchdist_%j.out  # Standard output and error log
 
@@ -21,7 +21,7 @@ conda activate vggt_new
 #===============================
 # Run script
 #===============================
-/blue/hmedeiros/qinruoyao/roomplan/vggt-qwen3-roomplan/train.sh stage2
+/blue/hmedeiros/qinruoyao/roomplan/vggt-qwen3-roomplan/train_fixed.sh --safe full 8
 #===============================
 # Diagnostic prints
 #===============================

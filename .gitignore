@@ -7,6 +7,11 @@ __pycache__/
 .env
 .venv
 *.log
+*.out
+run_*.log
+pytorchdist_*.out
+core.*
+cleanup_old_runs.sh
 
 # Hugging Face cache
 .hf_cache/

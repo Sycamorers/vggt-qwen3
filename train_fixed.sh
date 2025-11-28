@@ -56,7 +56,9 @@ if [ "$SAFE_MODE" -eq 1 ]; then
     echo "🔒 SAFE MODE enabled: forcing conservative settings"
     BATCH_PER_GPU=1
     GRAD_ACCUM=4
-    DATALOADER_NUM_WORKERS=0
+    # Allow 2 dataloader workers per GPU for async image loading (critical for performance!)
+    # This doesn't consume much memory but dramatically speeds up data loading
+    DATALOADER_NUM_WORKERS=$((NUM_GPUS * 2))
     EFFECTIVE_BATCH=$((BATCH_PER_GPU * GRAD_ACCUM * NUM_GPUS))
     echo "   -> BATCH_PER_GPU=$BATCH_PER_GPU, GRAD_ACCUM=$GRAD_ACCUM, DATALOADER_NUM_WORKERS=$DATALOADER_NUM_WORKERS, EFFECTIVE_BATCH=$EFFECTIVE_BATCH"
 fi
@@ -175,7 +177,9 @@ EFFECTIVE_BATCH=$((BATCH_PER_GPU * GRAD_ACCUM * NUM_GPUS))
                 echo "⚠️  Slurm memory limit is <64GB: enforcing conservative training settings"
                 BATCH_PER_GPU=1
                 GRAD_ACCUM=4
-                DATALOADER_NUM_WORKERS=0
+                # Still allow some workers for async image loading (critical for performance)
+                # Use 1 worker per GPU as a safe minimum
+                DATALOADER_NUM_WORKERS=${DATALOADER_NUM_WORKERS:-$NUM_GPUS}
                 echo "   -> BATCH_PER_GPU=$BATCH_PER_GPU, GRAD_ACCUM=$GRAD_ACCUM, DATALOADER_NUM_WORKERS=$DATALOADER_NUM_WORKERS"
             fi
         else
@@ -247,6 +251,28 @@ export NCCL_IB_DISABLE=0                    # Enable InfiniBand if available
 export NCCL_NET_GDR_LEVEL=2                 # GPU Direct RDMA
 export TORCH_NCCL_ASYNC_ERROR_HANDLING=1    # Better error reporting
 export TORCH_NCCL_TRACE_BUFFER_SIZE=10000   # Enable flight recorder
+# Prevent NIC fusion issues when mixed IB/RoCE NICs exist on a node.
+# Setting NCCL_NET_MERGE_LEVEL=LOC disables NIC fusion (recommended when
+# you see "Attempted to merge incompatible devices" warnings). Leave
+# overridable by the user via the environment.
+export NCCL_NET_MERGE_LEVEL=${NCCL_NET_MERGE_LEVEL:-LOC}
+
+# Optional: administrators/users can set NCCL_IB_HCA to restrict which
+# HCA(s) NCCL picks (e.g. "mlx5_0,mlx5_1"). If the user already exported
+# NCCL_IB_HCA we respect it; otherwise we set a HiPerGator-friendly
+# default just below.
+if [ -n "$NCCL_IB_HCA" ]; then
+    echo "ℹ️  Using user-provided NCCL_IB_HCA=$NCCL_IB_HCA"
+else
+    echo "ℹ️  NCCL_NET_MERGE_LEVEL=$NCCL_NET_MERGE_LEVEL (set NCCL_IB_HCA to pick specific NICs if needed)"
+fi
+
+# Force P2P on (some shells export NCCL_P2P_DISABLE=1 which routes traffic over NICs and kills intra-node performance).
+export NCCL_P2P_DISABLE=${NCCL_P2P_DISABLE:-0}
+
+# Default to IB-only HCAs on HiPerGator nodes to avoid IB/RoCE mixing warnings.
+# Users can override by exporting NCCL_IB_HCA before calling this script.
+export NCCL_IB_HCA=${NCCL_IB_HCA:-"mlx5_0,mlx5_1,mlx5_2,mlx5_3,mlx5_4,mlx5_5,mlx5_7,mlx5_8,mlx5_9,mlx5_10,mlx5_11,mlx5_13,mlx5_14,mlx5_15"}
 
 # Fix 3: DeepSpeed settings
 export CUDA_LAUNCH_BLOCKING=0               # Async kernel launches
@@ -256,6 +282,9 @@ export PYTORCH_CUDA_ALLOC_CONF="max_split_size_mb:512"  # Memory allocation
 export OMP_NUM_THREADS=1
 
 # Fix 5: Prevent hanging on exit
+## Keep deprecated variable for compatibility, but prefer the TORCH_ variant
+## (logs warn to use TORCH_NCCL_ASYNC_ERROR_HANDLING). We still export the
+## old name for older NCCL builds so behavior is preserved.
 export NCCL_ASYNC_ERROR_HANDLING=1
 
 echo "✅ Environment variables set:"
@@ -268,6 +297,8 @@ echo "   PYTHONPYCACHEPREFIX=$PYTHONPYCACHEPREFIX"
 echo "   TMPDIR=$TMPDIR"
 echo "   NCCL_TIMEOUT=$NCCL_TIMEOUT"
 echo "   NCCL_DEBUG=$NCCL_DEBUG"
+echo "   NCCL_P2P_DISABLE=$NCCL_P2P_DISABLE"
+echo "   NCCL_IB_HCA=$NCCL_IB_HCA"
 echo ""
 
 # Verify environment
