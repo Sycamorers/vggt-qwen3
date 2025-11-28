@@ -65,14 +65,13 @@ If you regenerate data with poses/depth, keep keys `R`, `t`, `K`, `depth_hist` s
 ### 3.2 Downloading / rebuilding datasets yourself
 
 **ScanQA / SQA3D (Stage 2):**
-- Obtain ScanNet, ScanQA, and SQA3D according to their licenses.
-- Place raw data under `data/raw/` (e.g., `data/raw/scannet`, question files under `data/raw/scanqa`, `data/raw/sqa3d`).
-- Build processed JSONL shards:
+- This repo already includes small, ready-to-use processed shards under `data/processed/scanqa/` and `data/processed/sqa3d/` for Stage 2 training and demos.
+- If you want to rebuild them from the original datasets, follow the official dataset instructions to obtain the raw RGB + annotations, place them under `data/raw/`, and then use:
   ```bash
   # ScanQA
   python scripts/prep/prepare_scanqa.py \
     --dataset scanqa \
-    --scan-root data/raw/scannet \
+    --scan-root data/raw/<your_scan_root> \
     --qa-file data/raw/scanqa/questions.json \
     --output data/processed/scanqa/train.jsonl \
     --num-views 8
@@ -80,12 +79,12 @@ If you regenerate data with poses/depth, keep keys `R`, `t`, `K`, `depth_hist` s
   # SQA3D
   python scripts/prep/prepare_scanqa.py \
     --dataset sqa3d \
-    --scan-root data/raw/scannet \
+    --scan-root data/raw/<your_scan_root> \
     --qa-file data/raw/sqa3d/questions.json \
     --output data/processed/sqa3d/train.jsonl \
     --num-views 8
   ```
-  This will create multi‑view, geometry‑aware samples compatible with the existing Stage 2 config.
+  This will create multi‑view (up to 8 views), geometry‑aware samples compatible with the existing Stage 2 config.
 
 **ARKitScenes / RoomPlan synthetic data (Stage 3):**
 - Download ARKitScenes into `data/raw/arkitscenes` (already done in your setup for a subset of scenes):
@@ -132,6 +131,12 @@ In both cases:
 - Images are single-view in the current processed shards, but the model and dataloader accept multi-view input seamlessly once such data is available.
 - Geometry tokens are currently `null` and therefore bypassed; the model still uses VGGT’s visual tokens for 3D reasoning.
 
+At training time (Stage 2):
+- `configs/stage2_3d.yaml` mixes these datasets with a ratio of approximately **0.7 ScanQA / 0.3 SQA3D** via `MultiSourceDataset`:
+  - ScanQA provides broad, free-form semantic supervision (object categories, attributes, colors, etc.).
+  - SQA3D emphasizes spatial relationships and relative positions.
+- This combination teaches the model to answer both generic semantic questions and more geometric, “where is X relative to Y” questions before moving on to ARKit/RoomPlan (Stage 3).
+
 ---
 
 ## 4) Model & Configs
@@ -144,7 +149,7 @@ In both cases:
   - `num_views: 8`, `image_size: 448`, `max_length: 512`, `view_dropout: 0.3`
   - Train: `batch_size_per_gpu: 6`, `grad_accum: 32`, `max_steps: 30000`, `save_every_steps: 1500`
   - LoRA: rank 16 on q/k/v/o
-- **Missing data for Stage 3:** `configs/stage3_arkit.yaml` expects `data/processed/arkit_synth/*.json`.
+- **Stage 3 config:** `configs/stage3_arkit.yaml` targets ARKit/RoomPlan action JSON prediction using synthetic data in `data/processed/arkit_synth/` (small demo set in this repo; full-scale training is optional).
 
 ---
 
@@ -227,8 +232,9 @@ If you hit NCCL or cache issues, `train_fixed.sh` already sets conservative envs
 - ✅ Distributed training supported (DeepSpeed ZeRO-3, Slurm templates).
 - ✅ Monitoring utilities and guides are in place.
 - ⚠️ Stage 1 instruction data not present (llava/sharegpt4v/docvqa/chartqa paths empty except DocVQA JSON).
-- ⚠️ Stage 3 (RoomPlan actions) data missing (`data/processed/arkit_synth`).
-- ⚠️ Current shards lack geometry tokens and multi-view frames; VGGT still runs but without geometry conditioning.
+- ✅ Stage 3 (RoomPlan actions) demo data prepared for ARKit (`data/processed/arkit_synth/train.json`) and a full inference script is wired.
+- ⚠️ Stage 3 has only been exercised on a small synthetic subset; full-scale RoomPlan training and JSON-style action prediction remain future work.
+- ⚠️ Current ScanQA/SQA3D shards lack geometry tokens and multi-view frames; VGGT still runs but without explicit geometry conditioning.
 
 ---
 

@@ -154,7 +154,11 @@ class VGGTQwen3VLM(nn.Module):
         elif len(agg.shape) == 4:  # [B, V, tokens_per_view, dim]
             # Flatten across views and take first num_vis_tokens
             agg = agg.reshape(B, -1, agg.shape[-1])[:, :self.num_vis_tokens, :]
-        
+
+        # Ensure dtype matches projector weights (avoids bf16/float mismatch at inference)
+        proj_dtype = self.projector.in_proj.weight.dtype
+        agg = agg.to(dtype=proj_dtype)
+
         return self.projector(agg)
 
     def encode_geom(self, geom_token: Dict[str, torch.Tensor]) -> Optional[torch.Tensor]:
