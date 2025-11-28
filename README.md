@@ -1,400 +1,272 @@
 # VGGT-Qwen3 RoomPlan Pipeline
 
-End-to-end training pipeline that injects VGGT's multi-view perception into Qwen3 so the model can emit ARKit/RoomPlan-friendly JSON action plans. The repo is structured for UF HiPerGator B200 nodes and includes Conda + Slurm workflows, dataset builders, and stage-wise training configs.
+End-to-end training stack that fuses VGGT’s multi-view perception with Qwen3 so the model can reason over indoor scans and emit ARKit/RoomPlan JSON action plans. Everything in this repo is oriented toward production training on multi-GPU nodes (UF HiPerGator B200), including curriculum configs, dataset builders, DeepSpeed/Accelerate launchers, and monitoring utilities.
 
 ---
 
-## ⚡ Quick Start
+## Project Overview
+- **Goal**: Teach a VGGT + Qwen3 vision-language model to understand 3D indoor scenes from synchronized views and return either natural-language answers or executable RoomPlan instructions.
+- **Input**: Up to 10 RGB views (448×448), optional camera/depth metadata, and a prompt.
+- **Outputs**: Free-form answers (Stages 1–2) and structured RoomPlan JSON actions (Stage 3).
+- **Training stack**: PyTorch 2.4 (CUDA 12.8) + Accelerate + DeepSpeed ZeRO-3. LoRA layers keep training feasible while VGGT stays frozen.
 
-```bash
-# 1. Setup environment
-conda env create -f env/environment.yml
-conda activate roomplan
+---
 
-# 2. Install VGGT
-pip install -e third_party/vggt/
+## Why This Project Is Different
+1. **Multi-view grounding** – `src/models/vggt_qwen3_vlm.py` injects VGGT aggregated tokens directly into the Qwen3 embedding stream at each `<image>` marker, preserving spatial correspondences without flattening the data pipeline.
+2. **Perceiver projector** – `src/models/projector_perceiver.py` resamples the VGGT feature cloud into 128 fixed tokens with 6 layers of latent cross-attention, providing controllable bandwidth between vision and language.
+3. **Geometry tokens** – Camera intrinsics/extrinsics and depth histograms (generated in `scripts/prep/prepare_scanqa.py`) feed an MLP head that produces extra tokens to stabilize reasoning about pose.
+4. **Stage-wise curriculum** – Configs under `configs/` move from instruction following → 3D QA → ARKit planners, gradually unfreezing more parameters and increasing view count.
+5. **Action-aware losses** – Stage 3 introduces structured heads and loss weights (`configs/stage3_arkit.yaml`) so the RoomPlan JSON outputs learn alongside the language stream.
+6. **Operational fixes baked in** – `train_fixed.sh` hardens runtime behavior (NCCL envs, cache placement, auto batch tuning) and Slurm recipes in `scripts/slurm/` mirror HiPerGator limits.
 
-# 3. Download weights (see SETUP_WEIGHTS.md)
-# Place vggt_1B_commercial.pt in third_party/vggt/
+---
 
-# 4. Prepare data (converts to JSONL format)
-python scripts/prep/prepare_scanqa.py
-python scripts/prep/prepare_sqa3d.py
-
-# 5. Run training (supports 1-8 GPUs)
-./train.sh debug        # Quick test with 2 GPUs
-./train.sh full 4       # Full training with 4 GPUs
-./train.sh debug 8      # Debug with 8 GPUs
-
-# 6. Monitor with TensorBoard
-tensorboard --logdir ckpts/stage2_3d_debug/logs/roomplan --port 6006
+## Architecture in Brief
 ```
-
-**Training Script Usage:**
-```bash
-./train.sh [mode] [num_gpus]
-
-# mode:     debug | full (default: full)
-# num_gpus: 1-8 (default: 2)
-
-# Examples:
-./train.sh                # Full training, 2 GPUs
-./train.sh debug          # Debug mode, 2 GPUs  
-./train.sh full 4         # Full training, 4 GPUs
-./train.sh debug 8        # Debug mode, 8 GPUs
+Multi-view images + camera tokens
+        │
+        ▼
+VGGT aggregator (frozen, bfloat16) ──► 2048-d tokens / view
+        │
+        ▼
+Perceiver projector (trainable) ──► 128 latents aligned to Qwen3 hidden size
+        │                         (optionally prepended geometry tokens)
+        ▼
+Qwen3-4B Instruct + LoRA adapters ──► answers + action JSON logits
 ```
-
-**📚 New to this repo?** Start with:
-1. **[SETUP_WEIGHTS.md](SETUP_WEIGHTS.md)** - Download model weights & data
-2. **[QUICK_START.md](QUICK_START.md)** - Step-by-step training guide  
-3. **[TRAINING_FIXES.md](TRAINING_FIXES.md)** - Bug fixes & troubleshooting
-4. **[MONITORING_GUIDE.md](MONITORING_GUIDE.md)** - Monitor training progress
+- VGGT weights live under `third_party/vggt/vggt_1B_commercial.pt`. Only the aggregator path is used, so you can keep the rest frozen and in eval mode.
+- The Perceiver projector owns most trainable parameters besides LoRA. It is defined via `configs/perceiver_small.yaml`.
+- Geometry tokens (`geom_head`) expand `R`, `t`, intrinsics `K`, and depth histograms into up to 8 prepended slots.
+- Structured losses (`loss_heads` in Stage 3 config) balance language, JSON action, and geometry-consistency objectives.
 
 ---
 
-## ✨ Recent Updates
+## Stage Curriculum & Data Sources
+| Stage | Config | Views | Datasets (expected under `data/processed/`) | Purpose |
+|-------|--------|-------|---------------------------------------------|---------|
+| 1. Instruction SFT | `configs/stage1_sft.yaml` | 1 view @448px | `llava/*.json`, `sharegpt4v/*.json`, `docvqa/*.json`, `chartqa/*.json` | Align Qwen3 with multimodal prompting while VGGT stays frozen and geom tokens disabled. |
+| 2. Multi-view 3D QA | `configs/stage2_3d.yaml` | 8 views @448px | `scanqa/*.jsonl`, `sqa3d/*.jsonl` (scripts in `scripts/prep/`) | Teach geometric reasoning using multi-view RGB + pose/depth metadata; LoRA covers q/k/v/o projections. |
+| 3. RoomPlan actions | `configs/stage3_arkit.yaml` | 10 views @448px | `arkit_synth/*.json` from `scripts/prep/synth_roomplan_instructions.py` | Jointly train language, JSON heads, and geometry consistency for ARKit-friendly action plans. |
 
-### Training Now Works! (November 2025)
-
-Fixed **8 critical bugs** that prevented training from starting:
-
-✅ **Config file format** - Changed from `.json` to `.jsonl` patterns  
-✅ **JSONL parsing** - Added support for JSON Lines format (one object per line)  
-✅ **VGGT loading** - Load from local checkpoint instead of HuggingFace Hub  
-✅ **Dtype handling** - Convert VGGT to bfloat16 to match training precision  
-✅ **Dimension matching** - Fixed projector input dim (1024 → 2048)  
-✅ **Shape handling** - Pass images directly to aggregator without reshaping  
-✅ **Console output** - Added real-time progress monitoring  
-✅ **Documentation** - Comprehensive guides for setup and troubleshooting  
-
-See **[TRAINING_FIXES.md](TRAINING_FIXES.md)** for detailed technical information.
-
-### Key Features
-
-- **Real-time monitoring**: Progress bars with loss, LR, speed, and ETA
-- **TensorBoard integration**: Automatic logging of metrics  
-- **Comprehensive docs**: Setup guides, troubleshooting, and monitoring
-- **Flexible GPU scaling**: Supports 1-8 GPUs with automatic configuration
-- **Cache management**: All caches relocate to project directory (no NFS issues)
-- **Verified working**: Successfully trains on multi-GPU setups with DeepSpeed ZeRO-3
-
----T-Qwen3 RoomPlan Pipeline
-
-End-to-end training pipeline that injects VGGT’s multi-view perception into Qwen3 so the model can emit ARKit/RoomPlan-friendly JSON action plans. The repo is structured for UF HiPerGator B200 nodes and includes Conda + Slurm workflows, dataset builders, and stage-wise training configs.
+Each stage writes checkpoints to `ckpts/<stage_name>/step_xxxxx/` via Accelerate’s `save_state`, so resuming simply points the trainer back to the latest folder.
 
 ---
 
-## Highlights
-
-- **Three-phase curriculum** – progressively teach instruction following, multi-view 3D reasoning, and ARKit-specific action heads (configs in `configs/`).
-- **Flexible GPU scaling** – Training script supports 1-8 GPUs with automatic DeepSpeed ZeRO-3 configuration.
-- **HiPerGator-ready** – Slurm templates target single-node multi-GPU runs with optimized cache management.
-- **Deterministic data pipelines** – scripts in `scripts/prep/` transform raw ScanQA / SQA3D / ARKitScenes data into JSONL shards consumed by trainers.
-- **Modular vision-text stack** – drop in your own `Qwen3` and `VGGT` repos under `third_party/`, swap projector configs, or extend LoRA heads without touching the core trainer.
-
----
-
-## Repository Layout
-
+## Repository Map
 ```
-vggt-qwen3-roomplan/
-├── configs/
-│   ├── stage{1,2,3}_*.yaml     # Curriculum configs
-│   └── deepspeed_zero3.json    # Default DS strategy
-├── data/
-│   ├── raw/                    # Vendor datasets (not tracked)
-│   └── processed/              # JSONL shards produced by prep scripts
-├── env/environment.yml         # Conda environment definition
+.
+├── configs/               # Curriculum + projector + DeepSpeed configs
+├── env/environment.yml    # Conda spec (PyTorch 2.4 + CUDA 12.8)
 ├── scripts/
-│   ├── prep/                   # Download + preprocessing utilities
-│   └── slurm/                  # Batch templates for HiPerGator
-├── src/                        # Training / evaluation entrypoints
-├── third_party/
-│   ├── Qwen3/                  # Clone or symlink Qwen3 repo
-│   └── vggt/                   # Clone or symlink VGGT repo
-├── ckpts/                      # Saved checkpoints
-├── logs/                       # Training & evaluation logs
-└── README.md
+│   ├── prep/              # Dataset download/conversion utilities
+│   └── slurm/             # HiPerGator-ready sbatch templates
+├── src/
+│   ├── dataio/            # JSON dataloaders + multi-view collator
+│   ├── models/            # VGGT-Qwen3 wrapper + Perceiver projector
+│   └── train/             # Stage-wise Accelerate trainer
+├── train_fixed.sh         # Production launcher with auto heuristics
+├── run.sh                 # Example sbatch entry
+├── third_party/           # Drop-in Qwen3 + VGGT repos (ignored by git)
+├── data/{raw,processed}/  # Raw archives + JSON/JSONL shards
+└── ckpts/, logs/          # Training artifacts
 ```
-
-> **Important**: `third_party/Qwen3` and `third_party/vggt` are intentionally empty. Clone or symlink the official repos so this project can reuse their code and pretrained weights.
-
----
-
-## Prerequisites
-
-- **Hardware**: NVIDIA GPUs with CUDA support (tested on H100s, supports 1-8 GPUs). Adjust batch sizes based on GPU memory.
-- **Accounts & Access**:
-  - UF Research Computing account with Slurm access and a project allocation.
-  - Dataset licenses for ARKitScenes, ScanQA, SQA3D, ReferIt3D, ScanRefer, Scan2Cap, etc.
-- **Software**:
-  - Conda or Mamba (Miniconda ≥ 23).
-  - Slurm client (`sbatch`, `srun`, `sacct`).
-  - CUDA 12.8-compatible drivers on compute nodes.
+See `FILE_GUIDE.md` for a per-file description and links to the longer-form guides.
 
 ---
 
-## Pre-downloaded assets
+## Setup Checklist
 
-- Hugging Face `Qwen/Qwen3-4B-Instruct-2507` is already mirrored under `.hf_cache/`. Set `HF_HOME=$PWD/.hf_cache` to reuse it locally or rsync that folder to HiPerGator scratch to avoid re-downloading on compute nodes.
+### 1. Hardware & Access
+- NVIDIA GPUs with ≥20 GB each (verified on 2–8 × H100 B200). Training uses bf16 everywhere.
+- Slurm access on HiPerGator or equivalent multi-GPU node plus storage for datasets and checkpoints.
+- Licenses for ScanQA, SQA3D, ARKitScenes, and other instruction-tuning corpora if you plan to rebuild Stage 1.
 
----
-
-## Environment Setup — HiPerGator
-
+### 2. Clone the project and dependencies
 ```bash
-module purge
-module load cuda/12.8 gcc/12.2  # adapt to your HiPerGator toolchain
-
+git clone https://github.com/Sycamorers/vggt-qwen3-roomplan.git
 cd vggt-qwen3-roomplan
+git clone https://github.com/QwenLM/Qwen3 third_party/Qwen3
+git clone https://github.com/Sycamorers/vggt third_party/vggt
+```
+`third_party/` is ignored to let you drop in private forks if needed.
+
+### 3. Create the Conda env
+```bash
 conda env create -f env/environment.yml
 conda activate roomplan
-
-# Install editable dependencies once you bring in the third-party repos
 pip install -e third_party/vggt
-pip install -e third_party/Qwen3  # only if the upstream repo supports it
+# Optional: install Qwen3 editable if their setup.py supports it
 ```
+The environment installs Transformers ≥4.51, Accelerate, DeepSpeed, PEFT, WandB, and CUDA 12.8 wheels.
 
-The Conda spec installs PyTorch 2.4 + CUDA 12.8 wheels plus the training stack (Transformers 4.51+, Accelerate, PEFT, DeepSpeed, WandB). Feel free to add extra logging/monitoring packages locally.
+### 4. Download pretrained checkpoints
+| Component | Where to get it | Where to place it |
+|-----------|-----------------|-------------------|
+| **Qwen/Qwen3-4B-Instruct-2507** | `huggingface-cli download Qwen/Qwen3-4B-Instruct-2507 --token <HF_TOKEN>` | Keep in your Hugging Face cache (`HF_HOME=$PWD/.hf_cache`) or mirror under `third_party/Qwen3`. |
+| **VGGT 1B commercial checkpoint** | Request from the official VGGT release (requires commercial license). | Save as `third_party/vggt/vggt_1B_commercial.pt`. The loader in `src/models/vggt_qwen3_vlm.py` looks for this exact filename. |
+| **Stage checkpoints (optional)** | Any prior run in `ckpts/<stage>/step_xxxxx/` | Point `--output_dir` to the same folder to resume. |
 
----
+Tips:
+- Export `HF_HOME=$PWD/.hf_cache` before training to avoid NFS hits.
+- If your cluster blocks outbound HF downloads, sync the cache to scratch and keep `transformers` in offline mode.
 
-## Environment Setup — Local workstation
-
-For CUDA 11.8-era desktop GPUs or CPU-only smoke tests:
-
+### 5. Configure cache & NCCL defaults
+`train_fixed.sh` automatically sets `PYTORCH_ALLOC_CONF`, `NCCL_P2P_DISABLE`, and `NCCL_IB_DISABLE`. If running manually, export:
 ```bash
-cd vggt-qwen3-roomplan
-conda env create -f env/environment_local.yml
-conda activate roomplan-local
-
-export HF_HOME=$PWD/.hf_cache  # reuse the pre-downloaded Qwen3 weights
-pip install -e third_party/vggt
-pip install -e third_party/Qwen3  # if editable install works for your platform
+export HF_HOME=$PWD/.hf_cache
+export NCCL_P2P_DISABLE=1
+export NCCL_IB_DISABLE=1
+export PYTORCH_CUDA_ALLOC_CONF="max_split_size_mb:256"
 ```
 
 ---
 
-## HiPerGator Quickstart (B200)
+## Data Preparation Workflow
 
-1. **Clone + modules**
-   ```bash
-   module purge
-   module load cuda/12.8 gcc/12.2
-   git clone git@github.com:Sycamorers/vggt-qwen3-roomplan.git
-   cd vggt-qwen3-roomplan
-   ```
-2. **Conda env**
-   ```bash
-   conda env create -f env/environment.yml
-   conda activate roomplan
-   ```
-3. **Third-party repos**
-   ```bash
-   git clone https://github.com/QwenLM/Qwen3 third_party/Qwen3
-   git clone https://github.com/Sycamorers/vggt third_party/vggt
-   pip install -e third_party/vggt
-   pip install -e third_party/Qwen3  # if supported
-   ```
-4. **Datasets**
-   - Place raw data under `data/raw/<dataset>/`.
-   - Use prep scripts (they write JSONL shards under `data/processed/`):
-     ```bash
-     bash scripts/prep/download_arkitscenes.sh --dest data/raw/arkitscenes   # example
-     python scripts/prep/build_*.py  # run relevant builders per dataset
-     ```
-5. **Stage configs**
-   - Adjust `configs/stage{1,2,3}_*.yaml` if needed (paths, batch sizes).
-   - Optional: set `HF_HOME` to a node-local path to avoid shared FS thrash.
-6. **Launch (Slurm)**
+### Dataset schema
+All JSON/JSONL shards consumed by `src/dataio/dataset_builder.py` share the fields:
+```json
+{
+  "images": ["relative/or/abs/path.jpg", ...],   // truncated to num_views per stage
+  "geom_token": { "R": [...], "t": [...], "K": [...], "depth_hist": [...] },
+  "question": "...",                             // stage 1 & 2
+  "answer": "...",                               // stage 1 & 2
+  "instruction": "...",                          // stage 3
+  "action_json": {...},                          // stage 3 output target
+  "task": "scanqa" | "sqa3d" | "arkit_actions"…
+}
+```
+The collator handles either `question`/`answer` or `instruction`/`action_json` pairs automatically.
+
+### Stage 1 corpora (instruction SFT)
+1. Obtain LLaVA-Instruct, ShareGPT4V, DocVQA, ChartQA, or compatible datasets.
+2. Convert each corpus to JSON with the schema above and place them under `data/processed/{llava,sharegpt4v,...}/`.
+3. Update the glob paths or mix ratios inside `configs/stage1_sft.yaml` if your filenames differ.
+
+### Stage 2 (ScanQA & SQA3D multi-view QA)
+```bash
+# Example: build ScanQA from raw ScanNet frames
+python scripts/prep/prepare_scanqa.py \
+  --dataset scanqa \
+  --scan-root data/raw/scannet \
+  --qa-file data/raw/scanqa/questions.json \
+  --output data/processed/scanqa/train.jsonl \
+  --num-views 8
+
+python scripts/prep/prepare_scanqa.py \
+  --dataset sqa3d \
+  --scan-root data/raw/scannet \
+  --qa-file data/raw/sqa3d/questions.json \
+  --output data/processed/sqa3d/train.jsonl \
+  --num-views 8
+```
+- The script samples views per scene, reads poses/intrinsics, builds depth histograms, and emits JSON Lines so `MultiViewJsonDataset` can stream them lazily.
+- Store validation splits alongside the train files so you can add eval hooks later.
+
+### Stage 3 (ARKitScenes-driven action synthesis)
+```bash
+# Download ARKitScenes into data/raw/arkitscenes (EULA required)
+bash scripts/prep/download_arkitscenes.sh --dest data/raw/arkitscenes
+
+# Generate synthetic instruction/action pairs
+python scripts/prep/synth_roomplan_instructions.py \
+  --arkit-root data/raw/arkitscenes \
+  --output data/processed/arkit_synth/train.json \
+  --num-views 10
+```
+- The generator loops over ARKitScenes plane annotations, crafts Chinese/English hybrid prompts, and writes RoomPlan-compatible `action_json` blobs.
+
+### Validation
+After each conversion, spot-check examples with:
+```bash
+python - <<'PY'
+import json, random, glob
+sample = random.choice(glob.glob("data/processed/scanqa/*.jsonl"))
+with open(sample) as f:
+    print(f.readline())
+PY
+```
+and ensure referenced image paths exist.
+
+---
+
+## Training Workflow
+
+### Option A – Hardened launcher (`train_fixed.sh`)
+Use this when running long jobs on shared clusters. It probes GPU/host memory, auto-tunes batch size and grad accumulation, and keeps caches local.
+```bash
+# [mode] = full | debug, [num_gpus] = 1-8
+./train_fixed.sh full 4
+./train_fixed.sh --safe debug 2   # conservative settings, 100 steps
+```
+Defaults:
+- Config: `configs/stage2_3d.yaml` (edit the script to point at other stages).
+- Output: `ckpts/stage2_3d` (or `_debug` when `debug` mode).
+- Saves checkpoints every `save_every_steps` defined in the config (e.g., 1,500 for Stage 2).
+
+### Option B – Direct Accelerate/DeepSpeed launch
+Useful for experimentation or when you want to run different configs per stage.
+```bash
+torchrun --standalone --nproc_per_node=4 -m src.train.train_sft \
+  --config configs/stage2_3d.yaml \
+  --deepspeed configs/deepspeed_zero3.json \
+  --output_dir ckpts/stage2_3d \
+  --max_steps 30000
+```
+Notes:
+- `src/train/train_sft.py` automatically builds the tokenizer, datasets, and model from the YAML file.
+- The DeepSpeed plugin is optional; omit `--deepspeed` for pure DDP.
+- Override `--max_steps` for partial runs (Stage 1 default 20k, Stage 3 default 10k).
+
+### GPU scaling
+All configs describe per-GPU batch and `grad_accum`. Total effective batch equals `batch_size_per_gpu × grad_accum × #GPUs`. Adjust these fields closer to your hardware if `train_fixed.sh` is not used.
+
+---
+
+## Slurm / HiPerGator Launch
+
+1. Edit `scripts/slurm/stage*_*.sbatch` with your UFRC account, time limit, and mail info.
+2. Submit each stage:
    ```bash
    sbatch scripts/slurm/stage1_sft_2xb200.sbatch
    sbatch scripts/slurm/stage2_3d_2xb200.sbatch
    sbatch scripts/slurm/stage3_arkit_2xb200.sbatch
    ```
-   Tail logs: `tail -f logs/<stage>/*.log`; monitor: `squeue -u $USER`.
-
----
-
-## Data Preparation
-
-1. **Download source datasets** into `data/raw/<dataset_name>/`. Example:
-
+3. Monitor:
    ```bash
-   bash scripts/prep/download_arkitscenes.sh --dest data/raw/arkitscenes
+   squeue -u $USER
+   tail -f logs/stage2/*.log
+   tensorboard --logdir ckpts/stage2_3d/logs --port 6006 --bind_all
    ```
+4. Clean up with the maintenance scripts referenced in `SLURM_TRAINING_GUIDE.md` if scratch storage gets tight.
 
-   The script checks for the ARKitScenes EULA; for third-party datasets download manually and drop the archives in `data/raw/`.
-
-2. **Convert to JSON packs**. Each script reads from `data/raw/` and writes `data/processed/<dataset>/*.json`.
-
-   ```bash
-   # Stage-2 datasets
-   python scripts/prep/prepare_scanqa.py \
-     --config configs/stage2_3d.yaml \
-     --raw-root data/raw \
-     --out-root data/processed
-
-   # ARKit synthetic instructions (Stage-3)
-   python scripts/prep/synth_roomplan_instructions.py \
-     --arkit-root data/raw/arkitscenes \
-     --out data/processed/arkit_synth
-   ```
-
-3. **Verify splits**. A quick sanity script (not tracked) can iterate over JSONL files and ensure fields `images`, `camera`, `instruction`, and `target_action` exist. Downstream trainers expect that schema.
+`run.sh` shows a template sbatch job that simply invokes `train_fixed.sh` with 8 A100/H100 GPUs.
 
 ---
 
-## Training Pipeline
-
-| Stage | Config | Views | Data Sources | Objective Highlights |
-|-------|--------|-------|--------------|----------------------|
-| Stage 1 – Instruction SFT | `configs/stage1_sft.yaml` | 1 view @ 448px | LLaVA-Instruct, ShareGPT4V, DocVQA, ChartQA | Teach base Qwen3 to follow structured prompts while VGGT remains frozen. LoRA rank 16 on Q/K/V/O. |
-| Stage 2 – 3D Alignment | `configs/stage2_3d.yaml` | 8 views @ 448px | ScanQA, SQA3D, ScanRefer, ReferIt3D, Scan2Cap | Introduce geometric tokens, multi-view fusion, and freeze lower text layers for stability. |
-| Stage 3 – RoomPlan Actions | `configs/stage3_arkit.yaml` | 10 views @ 448px | Synthetic ARKitScenes instructions | Jointly optimize language + JSON action heads + geometry consistency losses for executable RoomPlan outputs. |
-
-**GPU Scaling:** The training script automatically adjusts for 1-8 GPUs:
-- Effective batch size = `batch_per_gpu (6) × grad_accum (32) × num_gpus`
-- Example: 4 GPUs → effective batch of 768
-- DeepSpeed config generated dynamically based on GPU count
-
-Shared practices:
-
-- **Vision Backbone**: `third_party/vggt` is referenced directly; keep it frozen to prevent catastrophic forgetting unless you have compute for joint finetuning.
-- **Projector**: `configs/perceiver_small.yaml` stitches VGGT tokens to Qwen3 hidden states. Modify to experiment with larger bottlenecks.
-- **Optimization**: DeepSpeed ZeRO-3 config lives in `configs/deepspeed_zero3.json`. Override via CLI flag if you need custom bucket sizes.
-- **Batching**: Stage configs set higher `grad_accum` so 2×GPU runs preserve the effective global batch used in the earlier 8×GPU recipes; lower it if wall-clock is a concern.
+## Outputs, Monitoring, and Evaluation
+- **Checkpoints** – Stored under `ckpts/<stage>/step_xxxxx/`. Each directory contains the Accelerate state (optimizer, scheduler, RNG) plus DeepSpeed shards, so you can resume or convert to Hugging Face format later.
+- **Logs** – TensorBoard events land in `ckpts/<stage>/logs/roomplan`. `accelerator.log()` already tracks loss and global step; extend it with custom scalars if needed.
+- **Console metrics** – The trainer prints step, loss, LR, throughput, and ETA whenever `log_every_steps` is reached (see `src/train/train_sft.py`).
+- **Monitoring helpers** – `MONITORING_GUIDE.md` and `TRAINING_MONITORING_SUMMARY.md` cover `tensorboard`, `scripts/monitor_training.py`, and Slurm-tail commands.
+- **Evaluation hooks** – Add your metrics inside `src/eval/` and run them with saved checkpoints. Stage-specific validation JSON can be loaded via the same `MultiViewJsonDataset`.
 
 ---
 
-## Launching Jobs
+## Supporting Documentation
+- `COMPLETE_TRAINING_GUIDE.md` – Deep dive on architecture decisions, fixes, and troubleshooting.
+- `SLURM_TRAINING_GUIDE.md` – Idiomatic HiPerGator workflow (sbatch usage, monitoring, cleanup).
+- `MONITORING_GUIDE.md` – How to tail checkpoints, plot TensorBoard, and sanity-check dataloaders.
+- `TRAINING_MONITORING_SUMMARY.md` – Condensed monitoring checklist.
 
-### Interactive training (any GPU count)
-
-Quick examples with the training script:
-
-```bash
-# Debug mode with 2 GPUs (default)
-./train.sh debug
-
-# Full training with 4 GPUs  
-./train.sh full 4
-
-# Debug with all 8 GPUs
-./train.sh debug 8
-
-# Use train_fixed.sh for cache management and NCCL fixes
-./train_fixed.sh full 4
-```
-
-The script automatically:
-- Validates GPU count (1-8)
-- Generates appropriate accelerate config
-- Calculates effective batch size
-- Sets up DeepSpeed ZeRO-3
-
-### Local / interactive dry run
-
-Use torchrun to smoke-test configs on a smaller number of GPUs:
-
-```bash
-srun --account=<ACCOUNT> --partition=gpu --gpus=2 --cpus-per-task=24 \
-     --mem=96G --time=02:00:00 --pty bash -i
-
-conda activate roomplan
-torchrun --standalone --nproc_per_node=2 -m src.train.train_sft \
-  --config configs/stage1_sft.yaml \
-  --deepspeed configs/deepspeed_zero3.json \
-  --max_steps 1000 \
-  --output_dir ckpts/dry_run_stage1
-```
-
-### Full-scale Slurm submits
-
-Update the `SBATCH` directives inside `scripts/slurm/stage*_*.sbatch` (account, QoS, email). Then submit:
-
-```bash
-sbatch scripts/slurm/stage1_sft_2xb200.sbatch
-sbatch scripts/slurm/stage2_3d_2xb200.sbatch
-sbatch scripts/slurm/stage3_arkit_2xb200.sbatch
-```
-
-Each script:
-
-- Loads the Conda env and third-party repos.
-- Launches `torchrun` across 1 node × 2 GPUs.
-- Logs to `logs/<stage>/<timestamp>` and checkpoints to `ckpts/<stage>/`.
-
-Monitor with `squeue -u $USER` and `tail -f logs/<stage>/*.log`.
+These guides complement the README but everything required to reproduce training now lives above.
 
 ---
 
-### CPU-only local smoke (no external deps)
-
-Use the toy dataset + mock VGGT stub to sanity-check the training loop without GPUs or large checkpoints:
-
-```bash
-python scripts/prep/make_toy_dataset.py --output data/processed/toy/train.json
-python -m src.train.train_sft \
-  --config configs/local_smoke.yaml \
-  --output_dir ckpts/local_smoke
-```
-
-For local single-GPU (RTX 3090/4090) runs with CUDA 11.8 drivers, create the `roomplan-local` env:
-
-```bash
-conda env create -f env/environment_local.yml
-conda activate roomplan-local
-```
-
-`configs/local_smoke.yaml` swaps in a tiny GPT-2 stub (`sshleifer/tiny-gpt2`) and sets `vision_backbone: mock`, so everything runs offline once the small HF weights are downloaded.
-
-### Local Qwen3 mini run (2×GPU, toy data)
-
-This uses the Qwen/Qwen3-4B-Instruct-2507 checkpoint with the mock vision backbone to keep VRAM reasonable on 3090/4090:
-
-```bash
-conda activate roomplan-local
-export HF_HOME=$PWD/.hf_cache  # optional cache path
-MASTER_ADDR=127.0.0.1 MASTER_PORT=29515 \
-torchrun --nproc_per_node=2 --master_addr $MASTER_ADDR --master_port $MASTER_PORT \
-  -m src.train.train_sft \
-  --config configs/local_qwen3.yaml \
-  --output_dir ckpts/local_qwen3_2gpu \
-  --max_steps 40
-```
-
-Ensure the `Qwen/Qwen3-4B-Instruct-2507` weights/tokenizer are available in your HF cache or mirrored locally.
+## License & Compliance
+This project inherits the research-only licenses of VGGT and Qwen3. Respect the dataset terms (ARKitScenes EULA, ScanNet derivatives) and Apple’s RoomPlan usage policies before sharing checkpoints or deploying models commercially. Use of `vggt_1B_commercial.pt` requires the upstream license from the VGGT authors.
 
 ---
 
-## Artifacts & Evaluation
-
-- **Checkpoints**: Stored under `ckpts/<stage>/`. Stage-3 checkpoints include JSON action head weights; keep Stage-2 around for ablations.
-- **WandB / TensorBoard**: Enable your preferred logger via environment variables (e.g., `WANDB_PROJECT=roomplan torchrun ...`).
-- **Evaluation hooks**: `src/` contains evaluation entrypoints (add scripts for ScanQA accuracy or ARKit plan validity). Extend `scripts/slurm/` with eval templates to reproduce paper numbers.
-
----
-
-## Customization Tips
-
-- **Different base LLM**: Change `model.name_or_path` and `tokenizer_path` in configs plus update LoRA target modules.
-- **Alternate projector**: Point `model.projector` to another YAML (e.g., a larger Perceiver) to change token folding capacity.
-- **Unfreezing VGGT**: Set `freeze_vision: false` and lower the learning rate; watch for VRAM use.
-- **Action schema changes**: Modify `loss_heads` in `configs/stage3_arkit.yaml` and align them with the trainer’s head definitions in `src/`.
-
----
-
-## Contributing
-
-1. Fork or branch off `main`.
-2. Run `pre-commit` or your preferred formatter (not bundled) before pushing.
-3. Open a PR with experiment notes, dataset versions, and hardware specs so results remain reproducible.
-
-Please respect the licenses of all third-party datasets and models. ARKitScenes is restricted to research use; obtain explicit permission for commercial deployments.
-
----
-
-## License
-
-This repository inherits the licenses of the upstream Qwen3 and VGGT projects. Unless noted otherwise, all original code here is released under the same research-only terms. Ensure compliance with Apple’s ARKit license and UF Research Computing policies before redistributing checkpoints.
+Happy training! Open issues or PRs if you discover improvements to the curriculum, dataset builders, or launcher scripts.
