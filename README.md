@@ -30,7 +30,7 @@ Further architectural details: `docs/COMPLETE_TRAINING_GUIDE.md` (theory) and in
 
 ---
 
-## 3) Data You Already Have (and How the Loader Uses It)
+## 3) Data
 Active datasets on disk (all paths relative to repo root):
 
 | Dataset | Path glob | Format | Views/sample | Geometry tokens |
@@ -60,7 +60,7 @@ If you regenerate data with poses/depth, keep keys `R`, `t`, `K`, `depth_hist` s
 
 ---
 
-## 4) Model & Configs That Actually Run
+## 4) Model & Configs 
 - **Vision:** VGGT aggregator (`third_party/vggt/vggt_1B_commercial.pt`, frozen).
 - **Projector:** Perceiver (`configs/perceiver_small.yaml`) with 128 latents, 6 layers, outputs Qwen3 hidden dim.
 - **Language:** `Qwen/Qwen3-4B-Instruct-2507` + LoRA on q/k/v/o (see config).
