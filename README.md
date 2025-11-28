@@ -103,6 +103,35 @@ If you regenerate data with poses/depth, keep keys `R`, `t`, `K`, `depth_hist` s
 
 For more discussion of data design and trade‑offs, see `docs/COMPLETE_TRAINING_GUIDE.md` (Data section).
 
+### 3.3 ScanQA and SQA3D (Stage 2 datasets)
+
+Stage 2 training (`configs/stage2_3d.yaml`) uses two 3D question–answering datasets:
+
+- **ScanQA** (`data/processed/scanqa/*.jsonl`)
+  - Task: free-form, open-vocabulary QA over indoor scenes (e.g., “What color is the cabinet to the left of the bed?”).
+  - Processed format in this repo:
+    - Each JSONL line has:
+      - `images`: a list with a single canonical view image path.
+      - `question`: a natural-language question about the scene.
+      - `answer`: a short free-form answer.
+      - `task`: `"scanqa"`.
+  - Usage:
+    - In Stage 2 configs, ScanQA contributes most of the training signal for general 3D reasoning.
+
+- **SQA3D** (`data/processed/sqa3d/*.jsonl`)
+  - Task: spatial and semantic QA about scenes, with a focus on relative location and object relationships.
+  - Processed format matches ScanQA:
+    - `images`: one bird’s-eye or canonical view.
+    - `question`: localized question (e.g., “What is in front of the sofa?”).
+    - `answer`: short answer.
+    - `task`: `"sqa3d"`.
+  - Usage:
+    - Mixed with ScanQA during Stage 2 to improve robustness on spatial and relational questions.
+
+In both cases:
+- Images are single-view in the current processed shards, but the model and dataloader accept multi-view input seamlessly once such data is available.
+- Geometry tokens are currently `null` and therefore bypassed; the model still uses VGGT’s visual tokens for 3D reasoning.
+
 ---
 
 ## 4) Model & Configs
