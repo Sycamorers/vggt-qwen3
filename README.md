@@ -143,6 +143,7 @@ The collator handles either `question`/`answer` or `instruction`/`action_json` p
 1. Obtain LLaVA-Instruct, ShareGPT4V, DocVQA, ChartQA, or compatible datasets.
 2. Convert each corpus to JSON with the schema above and place them under `data/processed/{llava,sharegpt4v,...}/`.
 3. Update the glob paths or mix ratios inside `configs/stage1_sft.yaml` if your filenames differ.
+   - **How it is used**: `configs/stage1_sft.yaml` mixes these corpora (60% LLaVA, 20% ShareGPT4V, 10% each for DocVQA and ChartQA) so Qwen3 learns multimodal instruction following before geometry is introduced. Samples here use `num_views: 1` and omit `geom_token`, letting the trainer focus on prompt/answer formatting and `<image>` token placement.
 
 ### Stage 2 (ScanQA & SQA3D multi-view QA)
 ```bash
@@ -163,6 +164,9 @@ python scripts/prep/prepare_scanqa.py \
 ```
 - The script samples views per scene, reads poses/intrinsics, builds depth histograms, and emits JSON Lines so `MultiViewJsonDataset` can stream them lazily.
 - Store validation splits alongside the train files so you can add eval hooks later.
+- **How it is used**: Stage 2 combines ScanQA (70%) and SQA3D (30%) per `configs/stage2_3d.yaml`. Each sample contributes up to 8 synchronized frames plus camera metadata, which the collator converts into geometry tokens so VGGT learns to align visual embeddings with Qwen3 responses. This stage keeps VGGT frozen but enables geometry tokens and higher view counts to teach 3D reasoning.
+- **ScanQA** – multiple-choice and open-ended QA over ScanNet scenes; emphasizes object discovery and spatial relations with ground-truth camera poses.
+- **SQA3D** – situational QA with more free-form language (“where would you sit to watch TV?”); complements ScanQA with relational answers and more diverse phrasing.
 
 ### Stage 3 (ARKitScenes-driven action synthesis)
 ```bash
@@ -176,6 +180,8 @@ python scripts/prep/synth_roomplan_instructions.py \
   --num-views 10
 ```
 - The generator loops over ARKitScenes plane annotations, crafts Chinese/English hybrid prompts, and writes RoomPlan-compatible `action_json` blobs.
+- **How it is used**: Stage 3 consumes only the ARKit synthetic dataset (`mix_ratio: 1.0`) and increases `num_views` to 10 while enabling the `loss_heads` in `configs/stage3_arkit.yaml`. The JSON targets supervise the RoomPlan action head, while the accompanying instructions keep the language model grounded in natural prompts that describe the ARKitScenes geometry.
+- **ARKit synthetic RoomPlan** – pseudo-instructions derived from Apple ARKit plane detections; each sample pairs 10 camera views with an action schema (e.g., `place_anchor`) so Stage 3 learns structured JSON heads directly aligned with ARKit APIs.
 
 ### Validation
 After each conversion, spot-check examples with:
