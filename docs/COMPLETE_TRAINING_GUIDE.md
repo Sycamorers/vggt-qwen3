@@ -8,7 +8,7 @@ This guide aligns with the current repository state: Qwen3-4B + VGGT, Stage 2 (3
 - **Goal:** Train a vision-language model that understands indoor 3D scenes and answers questions; later extend to RoomPlan-style JSON actions.
 - **Pipeline:** VGGT aggregator (frozen) → Perceiver projector (trainable) → optional geometry tokens → Qwen3-4B with LoRA adapters.
 - **Ready now:** Stage 2 multi-view QA using the existing processed ScanQA/SQA3D JSONL files (single-view per sample, `geom_token: null`).
-- **Not ready yet:** Stage 3 RoomPlan actions (needs `data/processed/arkit_synth/*.json`), Stage 1 instruction corpora (paths exist but data not present).
+- **Not ready yet:** Stage 3 RoomPlan training (structured `action_json` head not implemented; labels are non-text), Stage 1 instruction corpora (paths exist but data not present).
 
 ---
 
@@ -38,7 +38,7 @@ Current processed datasets (all JSON/JSONL are relative to repo root):
 | ScanQA  | `data/processed/scanqa/*.jsonl` | 1 | `geom_token: null` | Uses bird’s-eye PNGs under `data/processed/SQA3D/bird/...`. |
 | SQA3D   | `data/processed/sqa3d/*.jsonl`  | 1 | `geom_token: null` | Same image source; single-view. |
 | DocVQA  | `data/processed/DocVQA/llava_instruct_80k.json` | n/a | n/a | Present but not wired to Stage 2. |
-| ARKit synthetic | **missing** (expected `data/processed/arkit_synth/*.json`) | — | — | Needed for Stage 3. |
+| ARKit synthetic | `data/processed/arkit_synth/train.json` | up to 10 | `geom_token: null` | 9-sample subset from 3DOD layout; used for inference plumbing only. |
 
 Sample (from `data/processed/sqa3d/train.jsonl`):
 ```json
@@ -115,7 +115,7 @@ torchrun --standalone --nproc_per_node=4 -m src.train.train_sft \
 
 ## 8. Roadmap / Next Steps
 - **Better Stage 2 data:** Regenerate ScanQA/SQA3D with multi-view frames and geometry using `scripts/prep/prepare_scanqa.py --num-views 8 --dataset scanqa|sqa3d`.
-- **Stage 3 actions:** Generate `data/processed/arkit_synth/*.json` via `scripts/prep/synth_roomplan_instructions.py`, then switch to `configs/stage3_arkit.yaml` in `train_fixed.sh`.
+- **Stage 3 actions (inference plumbing only):** Reuse or regenerate `data/processed/arkit_synth/train.json` with `scripts/prep/prepare_arkit_from_3dod.py`. Training with `configs/stage3_arkit.yaml` is not yet wired; use `src.inference.arkit_inference` with Stage 2 weights to run smoke tests.
 - **Instruction Stage (optional):** Populate `data/processed/{llava,sharegpt4v,docvqa,chartqa}` and use `configs/stage1_sft.yaml`.
 
 ---

@@ -32,5 +32,5 @@ python scripts/monitor_training.py --logdir ckpts/stage2_3d/logs/roomplan --watc
 ```
 
 6) **Next Steps**
-- For RoomPlan actions: generate `data/processed/arkit_synth/*.json` with `scripts/prep/synth_roomplan_instructions.py` and switch to `configs/stage3_arkit.yaml`.
+- For RoomPlan actions (inference plumbing only): reuse or regenerate `data/processed/arkit_synth/train.json` with `scripts/prep/prepare_arkit_from_3dod.py` (works with the current 3DOD layout). Stage 3 training is not wired; run inference with Stage 2 weights via `src.inference.arkit_inference`.
 - For multi-view geometry: rebuild ScanQA/SQA3D with `scripts/prep/prepare_scanqa.py --num-views 8`.

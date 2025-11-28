@@ -12,7 +12,7 @@ This file maps key files/folders to their purposes, aligned with the current tra
 
 ## Configs (`configs/`)
 - `stage2_3d.yaml` – Active Stage 2 config (ScanQA/SQA3D).
-- `stage1_sft.yaml`, `stage3_arkit.yaml` – Other stages (require additional data).
+- `stage1_sft.yaml`, `stage3_arkit.yaml` – Other stages (Stage 1 needs data; Stage 3 is a reference config only—trainer does not yet support structured `action_json`).
 - `*_mini.yaml` – Lightweight smoke-test variants.
 - `perceiver_small.yaml` – Vision projector architecture.
 - `deepspeed_zero3.json` – DeepSpeed settings.
