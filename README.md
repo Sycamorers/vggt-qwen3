@@ -1,6 +1,6 @@
 # VGGT-Qwen3 RoomPlan – Complete Reproduction Guide
 
-This repo trains a VGGT + Qwen3 vision-language model to reason about indoor 3D scenes and (optionally) emit RoomPlan-style JSON actions. The instructions below match the **current code and data in this workspace** so a new researcher can set up the environment, understand the data, and launch distributed training with confidence.
+This repo trains a VGGT + Qwen3 vision-language model to reason about indoor 3D scenes and (optionally) emit RoomPlan-style JSON actions.
 
 ---
 
