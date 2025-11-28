@@ -1,4 +1,4 @@
-# VGGT-Qwen3 RoomPlan – Complete Reproduction Guide
+# VGGT-Qwen3 RoomPlan
 
 This repository trains a VGGT + Qwen3 vision-language model to reason about indoor 3D scenes and (optionally) emit RoomPlan-style JSON actions.
 
