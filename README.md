@@ -1,6 +1,6 @@
 # VGGT-Qwen3 RoomPlan – Complete Reproduction Guide
 
-This repo trains a VGGT + Qwen3 vision-language model to reason about indoor 3D scenes and (optionally) emit RoomPlan-style JSON actions.
+This repository trains a VGGT + Qwen3 vision-language model to reason about indoor 3D scenes and (optionally) emit RoomPlan-style JSON actions.
 
 ---
 
@@ -10,7 +10,9 @@ This repo trains a VGGT + Qwen3 vision-language model to reason about indoor
 - **Current stage:** Stage 2 (3D QA) is ready to run with existing processed data; Stage 3 (RoomPlan actions) needs data generation.
 - **Distributed training:** Supported via `train_fixed.sh` (DeepSpeed ZeRO-3, 1–8 GPUs) and Slurm template `run.sh`.
 
-Further architectural details: `docs/COMPLETE_TRAINING_GUIDE.md` (theory) and inline code comments in `src/models/`.
+For a deeper conceptual overview and a step‑by‑step walkthrough, see:
+- `docs/COMPLETE_TRAINING_GUIDE.md` – detailed architecture, data, training, troubleshooting
+- `docs/QUICK_START.md` – condensed “run it now” steps
 
 ---
 
@@ -24,14 +26,16 @@ Further architectural details: `docs/COMPLETE_TRAINING_GUIDE.md` (theory) and in
    ```bash
    pip install -e third_party/vggt
    ```
-3. (Optional) Install Qwen3 editable if needed; otherwise HF cache is sufficient.
+3. (Optional) Install Qwen3 editable if needed; otherwise Hugging Face cache is sufficient.
 4. GPU requirements: NVIDIA GPUs with ≥20 GB each; bf16 training.
 5. Cache guidance (already set in `train_fixed.sh`): use project-local `.cache/` for HF/torch/triton to avoid NFS issues.
 
 ---
 
 ## 3) Data
-Active datasets on disk (all paths relative to repo root):
+
+### 3.1 Datasets currently available
+The following processed datasets are already present in this repository (paths are relative to the project root):
 
 | Dataset | Path glob | Format | Views/sample | Geometry tokens |
 |---------|-----------|--------|--------------|-----------------|
@@ -58,9 +62,50 @@ How the code consumes this:
 
 If you regenerate data with poses/depth, keep keys `R`, `t`, `K`, `depth_hist` so `encode_geom` works unchanged.
 
+### 3.2 Downloading / rebuilding datasets yourself
+
+**ScanQA / SQA3D (Stage 2):**
+- Obtain ScanNet, ScanQA, and SQA3D according to their licenses.
+- Place raw data under `data/raw/` (e.g., `data/raw/scannet`, question files under `data/raw/scanqa`, `data/raw/sqa3d`).
+- Build processed JSONL shards:
+  ```bash
+  # ScanQA
+  python scripts/prep/prepare_scanqa.py \
+    --dataset scanqa \
+    --scan-root data/raw/scannet \
+    --qa-file data/raw/scanqa/questions.json \
+    --output data/processed/scanqa/train.jsonl \
+    --num-views 8
+
+  # SQA3D
+  python scripts/prep/prepare_scanqa.py \
+    --dataset sqa3d \
+    --scan-root data/raw/scannet \
+    --qa-file data/raw/sqa3d/questions.json \
+    --output data/processed/sqa3d/train.jsonl \
+    --num-views 8
+  ```
+  This will create multi‑view, geometry‑aware samples compatible with the existing Stage 2 config.
+
+**ARKitScenes / RoomPlan synthetic data (Stage 3):**
+- Download ARKitScenes into `data/raw/arkitscenes`:
+  ```bash
+  bash scripts/prep/download_arkitscenes.sh --dest data/raw/arkitscenes
+  ```
+- Generate synthetic instruction/action pairs:
+  ```bash
+  python scripts/prep/synth_roomplan_instructions.py \
+    --arkit-root data/raw/arkitscenes \
+    --output data/processed/arkit_synth/train.json \
+    --num-views 10
+  ```
+  Stage 3 configs (`configs/stage3_arkit*.yaml`) expect these files under `data/processed/arkit_synth/`.
+
+For more discussion of data design and trade‑offs, see `docs/COMPLETE_TRAINING_GUIDE.md` (Data section).
+
 ---
 
-## 4) Model & Configs 
+## 4) Model & Configs
 - **Vision:** VGGT aggregator (`third_party/vggt/vggt_1B_commercial.pt`, frozen).
 - **Projector:** Perceiver (`configs/perceiver_small.yaml`) with 128 latents, 6 layers, outputs Qwen3 hidden dim.
 - **Language:** `Qwen/Qwen3-4B-Instruct-2507` + LoRA on q/k/v/o (see config).
@@ -75,7 +120,7 @@ If you regenerate data with poses/depth, keep keys `R`, `t`, `K`, `depth_hist` s
 ---
 
 ## 5) How to Train (Local or Slurm)
-Primary launcher: `train_fixed.sh` (sets caches, NCCL envs, probes GPU/host mem, DeepSpeed ZeRO-3).
+Primary launcher: `train_fixed.sh` (sets caches, NCCL envs, probes GPU/host memory, DeepSpeed ZeRO-3).
 
 **Local / interactive**
 ```bash
@@ -94,6 +139,8 @@ Adjust account/time/memory/partition in `run.sh` as needed. More Slurm templates
 **Resuming**
 - Accelerate state is saved every `save_every_steps` to `ckpts/stage2_3d/step_xxxxx/`.
 - Resume by pointing `--output_dir` (or editing `train_fixed.sh`) to the existing folder; Accelerate will load state automatically.
+
+Detailed training workflow (including troubleshooting and tips) is documented in `docs/COMPLETE_TRAINING_GUIDE.md`.
 
 ---
 
@@ -122,6 +169,8 @@ If you hit NCCL or cache issues, `train_fixed.sh` already sets conservative envs
 - **Add geometry + multi-view:** Rebuild ScanQA/SQA3D with poses/depth using `scripts/prep/prepare_scanqa.py --dataset scanqa|sqa3d --num-views 8 --output data/processed/{scanqa,sqa3d}/train.jsonl`.
 - **Generate RoomPlan data:** Run `scripts/prep/synth_roomplan_instructions.py --arkit-root data/raw/arkitscenes --output data/processed/arkit_synth/train.json --num-views 10`, then switch `CONFIG_FILE` to `configs/stage3_arkit.yaml`.
 - **Small smoke tests:** Use the mini configs in `configs/*_mini.yaml` and set VGGT to `mock` in `configs/local_*` if you need CPU-only checks.
+
+Stage‑wise training strategies (Stage 1 → Stage 2 → Stage 3) are described in more detail in `docs/COMPLETE_TRAINING_GUIDE.md`.
 
 ---
 
