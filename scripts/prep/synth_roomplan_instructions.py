@@ -35,6 +35,11 @@ def parse_args() -> argparse.Namespace:
 
 
 def load_planes(scene_dir: Path) -> List[Dict]:
+    """Load plane annotations for a single scene.
+
+    This assumes the ARKitScenes layout:
+      <scene_dir>/annotations/planes.json
+    """
     plane_file = scene_dir / "annotations" / "planes.json"
     if not plane_file.exists():
         return []
@@ -42,6 +47,11 @@ def load_planes(scene_dir: Path) -> List[Dict]:
 
 
 def load_cameras(scene_dir: Path) -> List[Dict]:
+    """Load camera metadata for a single scene.
+
+    Expected layout:
+      <scene_dir>/cameras.json
+    """
     file = scene_dir / "cameras.json"
     if not file.exists():
         return []
@@ -55,12 +65,14 @@ def pick_views(cameras: List[Dict], num_views: int, rng: random.Random) -> List[
 
 
 def make_instruction(scene_id: str, plane: Dict) -> str:
+    """Build an English RoomPlan-style instruction for a single plane."""
     normal = plane.get("normal", [0, 1, 0])
     size = plane.get("extent", [1.0, 1.0])
     kind = plane.get("label", "plane")
     return (
-        f"在场景 {scene_id} 中，找到朝向 ({normal[0]:.2f},{normal[1]:.2f},{normal[2]:.2f}) "
-        f"的 {kind} 平面，尺寸约为 {size[0]:.2f}×{size[1]:.2f} 米，并放置一个虚拟 Anchor。"
+        f"In scene {scene_id}, find a {kind} plane whose normal is approximately "
+        f"({normal[0]:.2f}, {normal[1]:.2f}, {normal[2]:.2f}) with size about "
+        f"{size[0]:.2f}×{size[1]:.2f} meters, and place a virtual anchor at its center."
     )
 
 
@@ -82,10 +94,28 @@ def build_geom_token(cameras: List[Dict]) -> Dict:
 
 
 def iter_samples(args: argparse.Namespace) -> Iterable[Dict]:
+    """Iterate over ARKit scenes and yield synthetic RoomPlan samples.
+
+    This now searches recursively under --arkit-root for any directory that
+    contains `annotations/planes.json` and `cameras.json`, so it will work
+    whether your scenes live directly under the root or in nested folders
+    like `Training/<scene_id>/`.
+    """
     rng = random.Random(args.seed)
-    for scene_dir in sorted(args.arkit_root.glob("*")):
-        if not scene_dir.is_dir():
-            continue
+
+    # Find all scene directories that have both planes and cameras metadata.
+    root: Path = args.arkit_root
+    candidate_scenes: List[Path] = []
+    for plane_file in root.rglob("annotations/planes.json"):
+        scene_dir = plane_file.parent.parent
+        cam_file = scene_dir / "cameras.json"
+        if cam_file.exists():
+            candidate_scenes.append(scene_dir)
+
+    candidate_scenes = sorted(set(candidate_scenes))
+    print(f"Discovered {len(candidate_scenes)} ARKit scenes with planes + cameras under {root}")
+
+    for scene_dir in candidate_scenes:
         planes = load_planes(scene_dir)
         cameras = load_cameras(scene_dir)
         if not planes or not cameras:
