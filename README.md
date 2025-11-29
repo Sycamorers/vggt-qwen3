@@ -34,43 +34,24 @@ For a deeper conceptual overview and a step‑by‑step walkthrough, see:
 
 ## 3) Data
 
-### 3.1 Datasets currently available
-The following processed datasets are already present in this repository (paths are relative to the project root):
+### 3.1 What’s already here (processed)
+- `data/processed/scanqa/*.jsonl` – ScanQA, single bird-view, `geom_token: null`
+- `data/processed/sqa3d/*.jsonl` – SQA3D, single bird-view, `geom_token: null`
+- `data/processed/arkit_synth/train.json` – 9-sample ARKit synthetic for inference plumbing (no training head)
 
-| Dataset | Path glob | Format | Views/sample | Geometry tokens |
-|---------|-----------|--------|--------------|-----------------|
-| ScanQA | `data/processed/scanqa/*.jsonl` | JSONL | 1 (bird’s-eye) | `null` |
-| SQA3D  | `data/processed/sqa3d/*.jsonl`  | JSONL | 1 (bird’s-eye) | `null` |
-| ARKit synthetic (used for inference plumbing) | `data/processed/arkit_synth/train.json` | JSON | up to 10 | `null` |
+Default Stage 2 mix: **0.7 ScanQA / 0.3 SQA3D** (see `configs/stage2_3d.yaml`).
 
-Sample record (from `data/processed/sqa3d/train.jsonl`):
-```json
-{
-  "images": ["data/processed/SQA3D/bird/scene0380_00_bird.png"],
-  "geom_token": null,
-  "question": "What color is the desk to my right?",
-  "answer": "brown",
-  "task": "sqa3d"
-}
-```
+### 3.2 Raw downloads
+- SQA3D: https://zenodo.org/records/7792397#.ZCkprfFBx3g
+- ScanQA: https://drive.google.com/drive/folders/1-21A3TBE0QuofEwDg5oDz2z0HEdbVgL2
 
-How the code consumes this:
-- `src/dataio/dataset_builder.py` loads `.json` arrays or `.jsonl` lines and truncates to `num_views` (8 in Stage 2; single-view data is accepted).
-- `src/dataio/collate_multiview.py` resizes to 448, builds text as `{question}\n<image>\n{answer}`, pads to ensure room for visual tokens, and skips geometry tokens when `geom_token` is null.
-- Vision features are injected at the `<image>` position; geometry head is bypassed when absent.
-
-If you regenerate data with poses/depth, keep keys `R`, `t`, `K`, `depth_hist` so `encode_geom` works unchanged.
-
-### 3.2 Downloading / rebuilding datasets yourself
-
-**ScanQA / SQA3D (Stage 2):**
-- This repo already includes small, ready-to-use processed shards under `data/processed/scanqa/` and `data/processed/sqa3d/` for Stage 2 training and demos.
-- If you want to rebuild them from the original datasets, follow the official dataset instructions to obtain the raw RGB + annotations, place them under `data/raw/`, and then use:
+### 3.3 Preprocess options
+- **Option A (multi-view + geometry, needs ScanNet RGB/depth/poses):**
   ```bash
   # ScanQA
   python scripts/prep/prepare_scanqa.py \
     --dataset scanqa \
-    --scan-root data/raw/<your_scan_root> \
+    --scan-root data/raw/scannet \
     --qa-file data/raw/scanqa/questions.json \
     --output data/processed/scanqa/train.jsonl \
     --num-views 8
@@ -78,15 +59,20 @@ If you regenerate data with poses/depth, keep keys `R`, `t`, `K`, `depth_hist` s
   # SQA3D
   python scripts/prep/prepare_scanqa.py \
     --dataset sqa3d \
-    --scan-root data/raw/<your_scan_root> \
+    --scan-root data/raw/scannet \
     --qa-file data/raw/sqa3d/questions.json \
     --output data/processed/sqa3d/train.jsonl \
     --num-views 8
   ```
-  This will create multi‑view (up to 8 views), geometry‑aware samples compatible with the existing Stage 2 config.
+  Emits `images` (up to `num_views`), `geom_token` (`R`, `t`, `K`, `depth_hist`), `question`, `answer`, `task`.
 
-**ARKitScenes / RoomPlan synthetic data (Stage 3 inference plumbing):**
-- The repo already includes a small ARKit synthetic JSON (`data/processed/arkit_synth/train.json`, 9 samples) built from your partial ARKit 3DOD download under `data/processed/ARKit/Training/...` using:
+- **Option B (fast single-view rebuild, uses shipped bird views):**
+  ```bash
+  python scripts/prep/rebuild_scanqa_sqa3d.py
+  ```
+  Recreates `data/processed/{scanqa,sqa3d}/train.jsonl` by pairing QA JSON with `data/processed/SQA3D/bird/<scene>_bird.png`; sets `geom_token: null`.
+
+- **ARKit synthetic (inference plumbing only):**
   ```bash
   python scripts/prep/prepare_arkit_from_3dod.py \
     --arkit-training-root data/processed/ARKit/Training \
@@ -94,92 +80,11 @@ If you regenerate data with poses/depth, keep keys `R`, `t`, `K`, `depth_hist` s
     --num-views 10 \
     --max_scenes 10
   ```
-- If you have full ARKitScenes with `annotations/planes.json` and `cameras.json`, you can instead use the plane-based script:
-  ```bash
-  python scripts/prep/synth_roomplan_instructions.py \
-    --arkit-root data/raw/arkitscenes \
-    --output data/processed/arkit_synth/train.json \
-    --num-views 10
-  ```
-  (This requires plane/camera metadata not present in the shipped subset.)
+  Stage 3 training remains unimplemented; use for inference smoke tests.
 
-Stage 3 configs (`configs/stage3_arkit*.yaml`) target these files, but training is not implemented; the JSON is used only for inference smoke tests with Stage 2 weights.
-
-For more discussion of data design and trade‑offs, see `docs/COMPLETE_TRAINING_GUIDE.md` (Data section).
-
-### 3.3 ScanQA and SQA3D (Stage 2 datasets)
-
-Stage 2 training (`configs/stage2_3d.yaml`) uses two 3D question–answering datasets:
-
-- **ScanQA** (`data/processed/scanqa/*.jsonl`)
-  - Task: free-form, open-vocabulary QA over indoor scenes (e.g., “What color is the cabinet to the left of the bed?”).
-  - Processed format in this repo:
-    - Each JSONL line has:
-      - `images`: a list with a single canonical view image path.
-      - `question`: a natural-language question about the scene.
-      - `answer`: a short free-form answer.
-      - `task`: `"scanqa"`.
-  - Usage:
-    - In Stage 2 configs, ScanQA contributes most of the training signal for general 3D reasoning.
-
-- **SQA3D** (`data/processed/sqa3d/*.jsonl`)
-  - Task: spatial and semantic QA about scenes, with a focus on relative location and object relationships.
-  - Processed format matches ScanQA:
-    - `images`: one bird’s-eye or canonical view.
-    - `question`: localized question (e.g., “What is in front of the sofa?”).
-    - `answer`: short answer.
-    - `task`: `"sqa3d"`.
-  - Usage:
-    - Mixed with ScanQA during Stage 2 to improve robustness on spatial and relational questions.
-
-In both cases:
-- Images are single-view in the current processed shards, but the model and dataloader accept multi-view input seamlessly once such data is available.
-- Geometry tokens are currently `null` and therefore bypassed; the model still uses VGGT’s visual tokens for 3D reasoning.
-
-At training time (Stage 2):
-- `configs/stage2_3d.yaml` mixes these datasets with a ratio of approximately **0.7 ScanQA / 0.3 SQA3D** via `MultiSourceDataset`:
-  - ScanQA provides broad, free-form semantic supervision (object categories, attributes, colors, etc.).
-  - SQA3D emphasizes spatial relationships and relative positions.
-- This combination teaches the model to answer both generic semantic questions and more geometric, “where is X relative to Y” questions before moving on to ARKit/RoomPlan (Stage 3).
-
-### 3.4 Preprocessing steps (ScanQA / SQA3D)
-
-Raw downloads
-- SQA3D: https://zenodo.org/records/7792397#.ZCkprfFBx3g
-- ScanQA: https://drive.google.com/drive/folders/1-21A3TBE0QuofEwDg5oDz2z0HEdbVgL2
-
-Option A: full multi‑view + geometry (requires ScanNet RGB/depth/poses)
-```bash
-# ScanQA
-python scripts/prep/prepare_scanqa.py \
-  --dataset scanqa \
-  --scan-root data/raw/scannet \
-  --qa-file data/raw/scanqa/questions.json \
-  --output data/processed/scanqa/train.jsonl \
-  --num-views 8
-
-# SQA3D
-python scripts/prep/prepare_scanqa.py \
-  --dataset sqa3d \
-  --scan-root data/raw/scannet \
-  --qa-file data/raw/sqa3d/questions.json \
-  --output data/processed/sqa3d/train.jsonl \
-  --num-views 8
-```
-This samples up to `num_views` frames per scene, attaches camera intrinsics/extrinsics + depth histograms as `geom_token`, and writes JSONL consumable by the trainer.
-
-Option B: quick single‑view rebuild (uses the shipped bird-view PNGs)
-```bash
-python scripts/prep/rebuild_scanqa_sqa3d.py
-```
-This recreates `data/processed/scanqa/train.jsonl` and `data/processed/sqa3d/train.jsonl` by pairing the QA JSON with `data/processed/SQA3D/bird/<scene>_bird.png`; `geom_token` is set to `null`.
-
-What `src/dataio/dataset_builder.py` does
-- Expands the `path_glob` in the config (e.g., `data/processed/scanqa/*.jsonl`) and loads JSONL (one object per line) or JSON arrays.
-- Normalizes each record to `{images, geom_token, question|instruction, answer|action_json, task}`.
-- Loads images from the given path; if missing, also tries `data/raw/<path>` as a fallback. Truncates to `num_views`.
-- Passes `geom_token` through; when it is `null`, the geometry branch is bypassed cleanly.
-- `MultiSourceDataset` mixes datasets by the provided ratios (0.7 ScanQA / 0.3 SQA3D in `configs/stage2_3d.yaml`).
+### 3.4 How the dataloader/collator use the data
+- `src/dataio/dataset_builder.py`: loads JSON/JSONL globs, normalizes to `{images, geom_token, question|instruction, answer|action_json, task}`, truncates to `num_views`, attempts image load (falls back to `data/raw/<path>`), and mixes datasets by ratio via `MultiSourceDataset`.
+- `src/dataio/collate_multiview.py`: resizes/crops images, builds `{question}\n<image>\n` prompts, appends answers, pads to `max_length` (reserving space for vision/geom tokens), and stacks tensors. Geometry is bypassed when `geom_token` is null.
 
 ---
 
