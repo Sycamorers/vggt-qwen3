@@ -6,7 +6,7 @@ This repository trains a VGGT + Qwen3 vision-language model to reason about 
 
 ## 1) What You’re Building
 - **Goal:** Teach Qwen3-4B to answer 3D scene questions using VGGT multi-view features; later extend to ARKit RoomPlan actions.
-- **Pipeline (code-backed):** VGGT aggregator (frozen) → Perceiver projector → optional geometry tokens → Qwen3-4B with LoRA. See `src/models/vggt_qwen3_vlm.py` and `configs/perceiver_small.yaml`.
+- **Pipeline (code-backed):** VGGT aggregator (frozen) → Perceiver projector → optional geometry tokens → Qwen3-4B. See `src/models/vggt_qwen3_vlm.py` and `configs/perceiver_small.yaml`.
 - **Current stage:** Stage 2 (3D QA) is ready to run with existing processed data. Stage 3 is **inference-only for plumbing checks** (9-sample ARKit synthetic JSON exists); Stage 3 training is **not wired** (see limitations below).
 - **Distributed training:** Supported via `train_fixed.sh` (DeepSpeed ZeRO-3, 1–8 GPUs) and Slurm template `run.sh`.
 
@@ -91,13 +91,12 @@ Default Stage 2 mix: **0.7 ScanQA / 0.3 SQA3D** (see `configs/stage2_3d.yaml`).
 ## 4) Model & Configs
 - **Vision:** VGGT aggregator (`third_party/vggt/vggt_1B_commercial.pt`, frozen).
 - **Projector:** Perceiver (`configs/perceiver_small.yaml`) with 128 latents, 6 layers, outputs Qwen3 hidden dim.
-- **Language:** `Qwen/Qwen3-4B-Instruct-2507` + LoRA on q/k/v/o (see config).
+- **Language:** `Qwen/Qwen3-4B-Instruct-2507`.
 - **Precision/optim:** bf16; AdamW with higher LR on projector/geom head; cosine schedule with warmup.
 - **Active stage config:** `configs/stage2_3d.yaml`
   - Data: ScanQA (0.7) + SQA3D (0.3)
   - `num_views: 8`, `image_size: 448`, `max_length: 512`, `view_dropout: 0.3`
   - Train: `batch_size_per_gpu: 6`, `grad_accum: 32`, `max_steps: 30000`, `save_every_steps: 1500`
-  - LoRA: rank 16 on q/k/v/o
 - **Stage 3 config:** `configs/stage3_arkit.yaml` documents intended ARKit/RoomPlan action training, but the current trainer does **not** support the structured `action_json` targets (no loss head, labels are non-text). Use only for reference; inference plumbing uses Stage 2 weights.
 
 ---
