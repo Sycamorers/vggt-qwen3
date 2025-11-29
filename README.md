@@ -257,6 +257,24 @@ python -m src.inference.arkit_inference \
 - `--checkpoint_dir` should point to the Stage 2 directory (`ckpts/stage2_3d`) containing both the ZeRO shards and the `pytorch_model_fp32/` directory.
 - The script prints per-sample logs and writes all results to `ckpts/arkit_infer/arkit_predictions_stage2_en.jsonl`.
 
+**Inputs and outputs**
+- Input JSON (`data/processed/arkit_synth/train.json`):
+  - Per-scene fields include `scene_id`, list of `images` (up to 10 rendered views), and a text `question`/instruction describing an ARKit-style action (e.g., “place an anchor on the nearest cabinet”).
+  - Each record also carries a structured `action_json` reference with fields like `action`, `scene`, `center`, `normal`, and `extent` that describe the intended 3D RoomPlan action.
+- Inference:
+  - `src/inference/arkit_inference.py` rebuilds the VGGT-Qwen3 model from the stage config, loads Stage 2 weights if available, and for each sample:
+    - Encodes the multi-view images via VGGT + Perceiver projector.
+    - Injects the visual tokens into Qwen at the `<image>` position in the prompt `{question}\n<image>\n`.
+    - Runs autoregressive generation with `max_new_tokens` to produce a free-form text `prediction`.
+  - The script also computes a very rough exact-match metric by comparing the text output to the serialized reference when present.
+- Output JSONL (`ckpts/arkit_infer/arkit_predictions_stage2_en.jsonl`):
+  - Each line contains:
+    - `index`: sequential sample index used in the run.
+    - `scene_id`: copied from the ARKit synthetic sample.
+    - `question`: the natural-language instruction given to the model.
+    - `prediction`: model-generated text describing the inferred action.
+    - `reference`: the ground-truth structured action (original `action_json`) used only for qualitative comparison/diagnostics.
+
 ### 11.3 Saved inference output format
 
 Each line of `ckpts/arkit_infer/arkit_predictions_stage2_en.jsonl` is a JSON record:
