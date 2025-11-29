@@ -142,6 +142,45 @@ At training time (Stage 2):
   - SQA3D emphasizes spatial relationships and relative positions.
 - This combination teaches the model to answer both generic semantic questions and more geometric, “where is X relative to Y” questions before moving on to ARKit/RoomPlan (Stage 3).
 
+### 3.4 Preprocessing steps (ScanQA / SQA3D)
+
+Raw downloads
+- SQA3D: https://zenodo.org/records/7792397#.ZCkprfFBx3g
+- ScanQA: https://drive.google.com/drive/folders/1-21A3TBE0QuofEwDg5oDz2z0HEdbVgL2
+
+Option A: full multi‑view + geometry (requires ScanNet RGB/depth/poses)
+```bash
+# ScanQA
+python scripts/prep/prepare_scanqa.py \
+  --dataset scanqa \
+  --scan-root data/raw/scannet \
+  --qa-file data/raw/scanqa/questions.json \
+  --output data/processed/scanqa/train.jsonl \
+  --num-views 8
+
+# SQA3D
+python scripts/prep/prepare_scanqa.py \
+  --dataset sqa3d \
+  --scan-root data/raw/scannet \
+  --qa-file data/raw/sqa3d/questions.json \
+  --output data/processed/sqa3d/train.jsonl \
+  --num-views 8
+```
+This samples up to `num_views` frames per scene, attaches camera intrinsics/extrinsics + depth histograms as `geom_token`, and writes JSONL consumable by the trainer.
+
+Option B: quick single‑view rebuild (uses the shipped bird-view PNGs)
+```bash
+python scripts/prep/rebuild_scanqa_sqa3d.py
+```
+This recreates `data/processed/scanqa/train.jsonl` and `data/processed/sqa3d/train.jsonl` by pairing the QA JSON with `data/processed/SQA3D/bird/<scene>_bird.png`; `geom_token` is set to `null`.
+
+What `src/dataio/dataset_builder.py` does
+- Expands the `path_glob` in the config (e.g., `data/processed/scanqa/*.jsonl`) and loads JSONL (one object per line) or JSON arrays.
+- Normalizes each record to `{images, geom_token, question|instruction, answer|action_json, task}`.
+- Loads images from the given path; if missing, also tries `data/raw/<path>` as a fallback. Truncates to `num_views`.
+- Passes `geom_token` through; when it is `null`, the geometry branch is bypassed cleanly.
+- `MultiSourceDataset` mixes datasets by the provided ratios (0.7 ScanQA / 0.3 SQA3D in `configs/stage2_3d.yaml`).
+
 ---
 
 ## 4) Model & Configs
