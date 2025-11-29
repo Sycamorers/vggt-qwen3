@@ -41,7 +41,6 @@ The following processed datasets are already present in this repository (paths a
 |---------|-----------|--------|--------------|-----------------|
 | ScanQA | `data/processed/scanqa/*.jsonl` | JSONL | 1 (bird’s-eye) | `null` |
 | SQA3D  | `data/processed/sqa3d/*.jsonl`  | JSONL | 1 (bird’s-eye) | `null` |
-| DocVQA (unused in current config) | `data/processed/DocVQA/llava_instruct_80k.json` | JSON | n/a | n/a |
 | ARKit synthetic (used for inference plumbing) | `data/processed/arkit_synth/train.json` | JSON | up to 10 | `null` |
 
 Sample record (from `data/processed/sqa3d/train.jsonl`):
@@ -237,7 +236,6 @@ If you hit NCCL or cache issues, `train_fixed.sh` already sets conservative envs
 - ✅ Code wired for Stage 2 multi-view QA; single-view ScanQA/SQA3D shards present and runnable.
 - ✅ Distributed training supported (DeepSpeed ZeRO-3, Slurm templates).
 - ✅ Monitoring utilities and guides are in place.
-- ⚠️ Stage 1 instruction data not present (llava/sharegpt4v/docvqa/chartqa paths empty except DocVQA JSON).
 - ✅ Stage 3 (RoomPlan actions) demo data prepared for ARKit (`data/processed/arkit_synth/train.json`) and an inference script is wired.
 - ⚠️ Stage 3 training is **not implemented**: `action_json` is structured (dict) and the trainer assumes text labels; `loss_heads` in `configs/stage3_arkit*.yaml` are not consumed.
 - ⚠️ Only small-scale ARKit inference smoke tests were run with Stage 2 weights; full RoomPlan training and JSON-style action prediction remain future work.
@@ -257,7 +255,7 @@ Stage‑wise training strategies (Stage 1 → Stage 2 → Stage 3) are described
 ## 9) Repository Map (active pieces)
 ```
 configs/                # Stage configs (stage2_3d active), projector, DeepSpeed
-data/processed/         # scanqa/*.jsonl, sqa3d/*.jsonl, DocVQA JSON
+data/processed/         # scanqa/*.jsonl, sqa3d/*.jsonl
 data/raw/               # placeholders + ARKit README
 src/dataio/             # dataset builder + multi-view collator
 src/models/             # VGGT-Qwen3 wrapper, Perceiver projector
