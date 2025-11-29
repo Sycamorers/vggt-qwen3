@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from typing import Dict, List
 
 import torch
@@ -38,7 +39,12 @@ class MultiViewCollator:
             stack = torch.stack(tensor_views, dim=0)
             pixel_batches.append(stack)
             question = sample["question"]
-            answer = sample["answer"]
+            answer_obj = sample["answer"]
+            # Ensure answers are strings (serialize dicts, lists, etc.)
+            if not isinstance(answer_obj, str):
+                answer = json.dumps(answer_obj, ensure_ascii=False)
+            else:
+                answer = answer_obj
             # Put image token AFTER question to avoid overwriting answer labels
             prompt = f"{question}\n<image>\n"
             texts.append(prompt)
@@ -73,11 +79,20 @@ class MultiViewCollator:
         labels = torch.tensor(label_ids_list, dtype=torch.long)
         
         geom_batch = None
-        if all(g is not None for g in geom):
+        if any(g is not None for g in geom):
             geom_batch = {}
-            keys = geom[0].keys()
-            for key in keys:
-                geom_batch[key] = torch.tensor([g[key] for g in geom], dtype=torch.float32)
+            template = next((g for g in geom if g is not None), None)
+            assert template is not None
+            for key, template_val in template.items():
+                stacked = []
+                template_tensor = torch.tensor(template_val, dtype=torch.float32)
+                for g in geom:
+                    if g is None:
+                        stacked.append(torch.zeros_like(template_tensor))
+                    else:
+                        stacked.append(torch.tensor(g[key], dtype=torch.float32))
+                geom_batch[key] = torch.stack(stacked, dim=0)
+            geom_batch["mask"] = torch.tensor([g is not None for g in geom], dtype=torch.bool)
         return {
             "pixel_values": pixel_tensor,
             "geom_token": geom_batch,

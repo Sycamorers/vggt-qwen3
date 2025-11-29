@@ -13,7 +13,6 @@ This file maps key files/folders to their purposes, aligned with the current tra
 ## Configs (`configs/`)
 - `stage2_3d.yaml` – Active Stage 2 config (ScanQA/SQA3D).
 - `stage1_sft.yaml`, `stage3_arkit.yaml` – Other stages (Stage 1 needs data; Stage 3 is a reference config only—trainer does not yet support structured `action_json`).
-- `*_mini.yaml` – Lightweight smoke-test variants.
 - `perceiver_small.yaml` – Vision projector architecture.
 - `deepspeed_zero3.json` – DeepSpeed settings.
 - `accelerate_*.yaml` – Sample Accelerate configs.
@@ -22,7 +21,6 @@ This file maps key files/folders to their purposes, aligned with the current tra
 - `train_fixed.sh` – Hardened launcher (caches, NCCL, ZeRO-3, auto batch probe).
 - `run.sh` – Slurm template that calls `train_fixed.sh`.
 - `scripts/slurm/*.sbatch` – Stage-specific Slurm job scripts.
-- `scripts/run_debug_training.sh` – Very small Accelerate debug run (10 steps).
 - `demo_monitoring.sh` – Interactive demo for monitoring commands.
 
 ## Source Code (`src/`)

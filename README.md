@@ -190,8 +190,6 @@ If you hit NCCL or cache issues, `train_fixed.sh` already sets conservative envs
 ## 8) Extending the Project
 - **Add geometry + multi-view:** Rebuild ScanQA/SQA3D with poses/depth using `scripts/prep/prepare_scanqa.py --dataset scanqa|sqa3d --num-views 8 --output data/processed/{scanqa,sqa3d}/train.jsonl`.
 - **Generate RoomPlan data (for inference or future training):** Build `data/processed/arkit_synth/train.json` with `scripts/prep/prepare_arkit_from_3dod.py` (works with the current 3DOD layout). If you have full planes/cameras metadata, `scripts/prep/synth_roomplan_instructions.py` is also supported. Training with `configs/stage3_arkit.yaml` is not yet wired.
-- **Small smoke tests:** Use the mini configs in `configs/*_mini.yaml` and set VGGT to `mock` in `configs/local_*` if you need CPU-only checks.
-
 Stage‑wise training strategies (Stage 1 → Stage 2 → Stage 3) are described in more detail in `docs/COMPLETE_TRAINING_GUIDE.md`.
 
 ---

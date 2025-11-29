@@ -51,15 +51,19 @@ class MultiViewJsonDataset(Dataset):
         return len(self.index)
 
     def _load_image(self, rel_path: str) -> Image.Image:
-        # Handle both absolute paths and paths relative to data/raw or data/processed
-        path = Path(rel_path)
-        if not path.exists():
-            # Try relative to data/raw (legacy behavior)
-            path = Path("data/raw") / rel_path
-        if not path.exists():
-            # Try as absolute from project root
-            path = Path(rel_path)
-        return Image.open(path).convert("RGB")
+        """Resolve and load an image path with clear errors if missing."""
+        candidates = []
+        rel_path_obj = Path(rel_path)
+        if rel_path_obj.is_absolute():
+            candidates.append(rel_path_obj)
+        else:
+            candidates.append(rel_path_obj)
+            candidates.append(Path("data/raw") / rel_path_obj)
+        for path in candidates:
+            if path.exists():
+                return Image.open(path).convert("RGB")
+        tried = ", ".join(str(p) for p in candidates)
+        raise FileNotFoundError(f"Image not found for sample: tried {tried}")
 
     def __getitem__(self, idx: int) -> Dict:
         sample = self.index[idx]
