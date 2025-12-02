@@ -1,5 +1,5 @@
 #!/bin/bash
-#SBATCH --job-name=roomplan-stage2
+#SBATCH --job-name=roomplan-stage1
 #SBATCH --partition=hpg-b200
 #SBATCH --nodes=1
 #SBATCH --gpus=2
@@ -23,6 +23,6 @@ export TORCH_DISTRIBUTED_DEBUG=DETAIL
 
 torchrun --standalone --nproc_per_node=2 \
   -m src.train.train_sft \
-  --config configs/stage2_3d.yaml \
+  --config configs/stage1_3d.yaml \
   --deepspeed configs/deepspeed_zero3.json \
-  --output_dir ckpts/stage2
+  --output_dir ckpts/stage1_3d

@@ -3,8 +3,8 @@
 Real-time training monitoring script.
 
 Usage:
-    python scripts/monitor_training.py --logdir ckpts/stage2_3d/logs
-    python scripts/monitor_training.py --logdir ckpts/stage2_3d/logs --watch
+    python scripts/monitor_training.py --logdir ckpts/stage1_3d/logs
+    python scripts/monitor_training.py --logdir ckpts/stage1_3d/logs --watch
 """
 
 import argparse

@@ -122,7 +122,7 @@ def test_dataset_loading(config_path: str):
 def main():
     """Run tests on all config files."""
     configs = [
-        "configs/stage2_3d.yaml",
+        "configs/stage1_3d.yaml",
         # "configs/stage3_arkit.yaml",  # Skip - needs processing first
     ]
     

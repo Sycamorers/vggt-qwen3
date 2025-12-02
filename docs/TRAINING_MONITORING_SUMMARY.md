@@ -1,20 +1,20 @@
 # Training Monitoring Summary (Current Stack)
 
-Use these options while running `train_fixed.sh` (Stage 2 default).
+Use these options while running `train_fixed.sh` (Stage 1 default).
 
 1) **TensorBoard (full UI)**
 ```bash
-tensorboard --logdir ckpts/stage2_3d/logs --port 6006 --bind_all
+tensorboard --logdir ckpts/stage1_3d/logs --port 6006 --bind_all
 ```
 
 2) **CLI monitor (snapshot)**
 ```bash
-python scripts/monitor_training.py --logdir ckpts/stage2_3d/logs/roomplan
+python scripts/monitor_training.py --logdir ckpts/stage1_3d/logs/roomplan
 ```
 
 3) **CLI monitor (auto-refresh)**
 ```bash
-python scripts/monitor_training.py --logdir ckpts/stage2_3d/logs/roomplan --watch --interval 30
+python scripts/monitor_training.py --logdir ckpts/stage1_3d/logs/roomplan --watch --interval 30
 ```
 
 4) **Tail logs**
@@ -27,4 +27,4 @@ watch -n 5 nvidia-smi
 df -h .
 ```
 
-If metrics are missing, confirm the logdir (`ckpts/stage2_3d/logs/roomplan`) matches your run and that training has progressed past the first `log_every_steps`.
+If metrics are missing, confirm the logdir (`ckpts/stage1_3d/logs/roomplan`) matches your run and that training has progressed past the first `log_every_steps`.

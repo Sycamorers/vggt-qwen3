@@ -1,6 +1,6 @@
 # Slurm Training Guide (HiPerGator B200)
 
-This matches the current launcher (`train_fixed.sh`, Stage 2 config by default).
+This matches the current launcher (`train_fixed.sh`, Stage 1 config by default).
 
 ---
 
@@ -9,7 +9,7 @@ This matches the current launcher (`train_fixed.sh`, Stage 2 config by default).
 sbatch run.sh
 ```
 - `run.sh` calls `train_fixed.sh --safe full 8` on partition `hpg-b200`. Edit partition/time/memory/mail/user in `run.sh` as needed.
-- Alternative templates: `scripts/slurm/stage{1,2,3}_*.sbatch` (Stage 2 is ready with existing data).
+- Alternative templates: `scripts/slurm/stage{1,2}_*.sbatch` (Stage 1 is ready with existing data).
 
 ---
 
@@ -19,25 +19,25 @@ sbatch run.sh
 - Logs: `tail -f pytorchdist_*.out | grep --line-buffered "Step\\|Loss\\|ETA"`
 - TensorBoard:
   ```bash
-  tensorboard --logdir ckpts/stage2_3d/logs --port 6006 --bind_all &
+  tensorboard --logdir ckpts/stage1_3d/logs --port 6006 --bind_all &
   # SSH tunnel from local: ssh -L 6006:<login_host>:6006 <user>@hpg.rc.ufl.edu
   ```
 - CLI monitor (from login node):
   ```bash
-  python scripts/monitor_training.py --logdir ckpts/stage2_3d/logs/roomplan --watch --interval 30
+  python scripts/monitor_training.py --logdir ckpts/stage1_3d/logs/roomplan --watch --interval 30
   ```
 
 ---
 
 ## Checkpoints & Output
-- Saved every `save_every_steps` (1500 in Stage 2) to `ckpts/stage2_3d/step_xxxxx/`.
-- TensorBoard events: `ckpts/stage2_3d/logs/roomplan`.
+- Saved every `save_every_steps` (1500 in Stage 1) to `ckpts/stage1_3d/step_xxxxx/`.
+- TensorBoard events: `ckpts/stage1_3d/logs/roomplan`.
 
 ---
 
 ## Common Tweaks
 - Change GPU count: edit `--gpus-per-node` in `run.sh` and pass the same number to `train_fixed.sh`.
-- Batch/grad accum: adjust in `configs/stage2_3d.yaml` or use `--safe` to auto-downscale.
+- Batch/grad accum: adjust in `configs/stage1_3d.yaml` or use `--safe` to auto-downscale.
 - Environment caches: already set to project-local paths inside `train_fixed.sh` to avoid NFS stalls.
 
 ---

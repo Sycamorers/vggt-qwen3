@@ -11,8 +11,8 @@ This file maps key files/folders to their purposes, aligned with the current tra
 - `docs/SLURM_TRAINING_GUIDE.md` – HiPerGator/Slurm usage.
 
 ## Configs (`configs/`)
-- `stage2_3d.yaml` – Active Stage 2 config (ScanQA/SQA3D).
-- `stage1_sft.yaml`, `stage3_arkit.yaml` – Other stages (Stage 1 needs data; Stage 3 is a reference config only—trainer does not yet support structured `action_json`).
+- `stage1_3d.yaml` – Active Stage 1 config (ScanQA/SQA3D).
+- `stage2_arkit.yaml` – Stage 2 ARKit/RoomPlan reference config (trainer does not yet support structured `action_json`).
 - `perceiver_small.yaml` – Vision projector architecture.
 - `deepspeed_zero3.json` – DeepSpeed settings.
 - `accelerate_*.yaml` – Sample Accelerate configs.

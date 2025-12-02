@@ -50,7 +50,7 @@ echo ""
 
 # Check config files
 echo "5. Checking configuration files..."
-for config in configs/accelerate_config.yaml configs/stage2_3d.yaml configs/deepspeed_zero3.json; do
+for config in configs/accelerate_config.yaml configs/stage1_3d.yaml configs/deepspeed_zero3.json; do
     if [ -f "$config" ]; then
         echo "   ✓ $config"
     else
@@ -82,7 +82,7 @@ echo "8. Testing training (1 step, dry run)..."
 echo "   This will take a few minutes to load the model..."
 timeout 300 accelerate launch --config_file configs/accelerate_single_gpu.yaml \
     src/train/train_sft.py \
-    --config configs/stage2_3d.yaml \
+    --config configs/stage1_3d.yaml \
     --output_dir /tmp/test_training \
     --max_steps 1 > /tmp/test_training.log 2>&1
 
@@ -102,7 +102,7 @@ echo "If all checks passed, you can start training with:"
 echo ""
 echo "  accelerate launch --config_file configs/accelerate_config.yaml \\"
 echo "      src/train/train_sft.py \\"
-echo "      --config configs/stage2_3d.yaml \\"
-echo "      --output_dir ckpts/stage2_3d \\"
+echo "      --config configs/stage1_3d.yaml \\"
+echo "      --output_dir ckpts/stage1_3d \\"
 echo "      --max_steps 30000"
 echo ""

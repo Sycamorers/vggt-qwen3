@@ -171,8 +171,8 @@ def main():
     
     config_files = [
         Path("configs/stage1_sft.yaml"),
-        Path("configs/stage2_3d.yaml"),
-        Path("configs/stage3_arkit.yaml"),
+        Path("configs/stage1_3d.yaml"),
+        Path("configs/stage2_arkit.yaml"),
     ]
     
     for config_file in config_files:

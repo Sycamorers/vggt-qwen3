@@ -20,8 +20,9 @@ set -e
 
 # Configuration
 PROJECT_DIR="/blue/hmedeiros/qinruoyao/roomplan/vggt-qwen3-roomplan"
-CONFIG_FILE="configs/stage2_3d.yaml"
-OUTPUT_DIR="ckpts/stage2_3d"
+CONFIG_FILE="configs/stage1_3d.yaml"
+# OUTPUT_DIR="ckpts/stage1_3d"
+OUTPUT_DIR="ckpts/stage1_3d_test"
 
 # Parse arguments
 # Support optional --safe flag: usage: ./train_fixed.sh [--safe] [mode] [num_gpus]
@@ -46,7 +47,7 @@ fi
 if [ "$MODE" = "debug" ]; then
     echo "🐛 Running in DEBUG mode (100 steps)"
     MAX_STEPS=100
-    OUTPUT_DIR="ckpts/stage2_3d_debug"
+    OUTPUT_DIR="ckpts/stage1_3d_debug"
 else
     echo "🚀 Running FULL training (30,000 steps)"
     MAX_STEPS=30000

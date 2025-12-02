@@ -256,7 +256,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--config",
         type=str,
-        default="configs/stage3_arkit.yaml",
+        default="configs/stage2_arkit.yaml",
         help="Stage config used for model reconstruction.",
     )
     parser.add_argument(
@@ -269,7 +269,7 @@ def parse_args() -> argparse.Namespace:
         "--checkpoint_dir",
         type=str,
         default=None,
-        help="Optional path to a trained checkpoint directory (e.g. ckpts/stage3_arkit/step_10000).",
+        help="Optional path to a trained checkpoint directory (e.g. ckpts/stage2_arkit/step_10000).",
     )
     parser.add_argument(
         "--num_scenes",
