@@ -462,8 +462,8 @@ Before retraining on the reorganized data, baseline evaluation was performed usi
 - Partial match: 6/50 (12.0%)
 
 **ARKit** (1 sample):
-- Exact match: 0/1 (0.0%)
-- Partial match: 0/1 (0.0%)
+- Exact match: 0/9 (0.0%)
+- Partial match: 0/9 (0.0%)
 
 ### Evaluation Metrics
 
