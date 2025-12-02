@@ -625,7 +625,7 @@ python scripts/prep/synth_roomplan_instructions.py \
 ```bash
 python -m src.inference.arkit_inference \
   --config configs/stage1_3d.yaml \
-  --arkit_glob "data/processed/arkit_synth/train.json" \
+  --arkit_glob "data/processed/arkit_synth/test.json" \
   --checkpoint_dir ckpts/stage1_3d \
   --num_scenes 9 \
   --max_new_tokens 256 \

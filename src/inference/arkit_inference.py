@@ -144,6 +144,41 @@ def build_tokenizer(model_name: str, tokenizer_path: Optional[str] = None):
     return tokenizer
 
 
+def _postprocess_generation(
+    tokenizer,
+    generated_ids: torch.Tensor,
+    input_ids: torch.Tensor,
+    question: str,
+) -> Tuple[str, str]:
+    """Strip the echoed prompt so we only keep the model's new tokens."""
+    raw_text = tokenizer.decode(generated_ids, skip_special_tokens=True).strip()
+    prompt_text = tokenizer.decode(input_ids, skip_special_tokens=True).strip()
+    cleaned = raw_text
+    for prefix in (prompt_text, question):
+        if cleaned.startswith(prefix):
+            cleaned = cleaned[len(prefix) :].strip()
+    cleaned = cleaned.replace("<image>", "").strip()
+    if not cleaned:
+        cleaned = raw_text
+    return cleaned, raw_text
+
+
+def _extract_first_json(text: str) -> str:
+    """Keep only the first JSON object if the model repeats it."""
+    start = text.find("{")
+    if start == -1:
+        return text
+    depth = 0
+    for i, ch in enumerate(text[start:], start=start):
+        if ch == "{":
+            depth += 1
+        elif ch == "}":
+            depth -= 1
+            if depth == 0:
+                return text[start : i + 1]
+    return text
+
+
 def _insert_vision_tokens(
     input_ids: torch.Tensor,
     attention_mask: torch.Tensor,
@@ -211,7 +246,12 @@ def run_inference(
         images = sample["images"]
         question = sample.get("question") or sample.get("instruction") or ""
         reference = sample.get("answer") or sample.get("action_json")
-        prompt = f"{question}\n<image>\n"
+        system_hint = (
+            "You are a RoomPlan assistant. Given multi-view images and an instruction, "
+            "reply with only the final JSON action using keys action, scene, center, normal, extent. "
+            "Do not repeat the instruction text."
+        )
+        prompt = f"{system_hint}\nInstruction: {question}\n<image>\n"
 
         encoded = tokenizer(prompt, return_tensors="pt")
         input_ids = encoded["input_ids"].to(device)
@@ -235,20 +275,40 @@ def run_inference(
                 inputs_embeds=inputs_embeds,
                 attention_mask=attention_mask,
                 max_new_tokens=max_new_tokens,
+                do_sample=False,
+                num_beams=1,
+                repetition_penalty=1.1,
+                no_repeat_ngram_size=4,
+                eos_token_id=tokenizer.eos_token_id,
+                pad_token_id=tokenizer.pad_token_id,
             )
         else:
             generated = model.generate(
                 input_ids=input_ids,
                 attention_mask=attention_mask,
                 max_new_tokens=max_new_tokens,
+                do_sample=False,
+                num_beams=1,
+                repetition_penalty=1.1,
+                no_repeat_ngram_size=4,
+                eos_token_id=tokenizer.eos_token_id,
+                pad_token_id=tokenizer.pad_token_id,
             )
 
-        text = tokenizer.decode(generated[0], skip_special_tokens=True)
+        prediction, raw_text = _postprocess_generation(
+            tokenizer=tokenizer,
+            generated_ids=generated[0],
+            input_ids=encoded["input_ids"][0],
+            question=question,
+        )
+        prediction = _extract_first_json(prediction)
+        raw_text = _extract_first_json(raw_text)
         record = {
             "index": idx,
             "scene_id": sample.get("scene_id"),
             "question": question,
-            "prediction": text,
+            "prediction": prediction,
+            "raw_prediction": raw_text,
             "reference": reference,
         }
         results.append(record)
@@ -264,11 +324,13 @@ def run_inference(
                 ref_str = json.dumps(reference, sort_keys=True)
             else:
                 ref_str = str(reference)
-            if ref_str.strip() == text.strip():
+            if ref_str.strip() == prediction.strip():
                 total_exact_match += 1
 
         print(f"[{idx}] {question}")
-        print(f" → {text}")
+        print(f" → {prediction}")
+        if raw_text != prediction:
+            print(f"   (raw) {raw_text}")
         if reference is not None:
             print(f"   (reference) {reference}")
         print("-" * 80)

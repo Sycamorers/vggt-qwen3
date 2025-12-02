@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import random
+import glob
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Dict, List
@@ -25,7 +26,15 @@ class MultiViewJsonDataset(Dataset):
 
     def __init__(self, config: DatasetConfig) -> None:
         self.config = config
-        self.files = sorted(Path().glob(config.path_glob))
+        pattern = config.path_glob
+        pattern_path = Path(pattern)
+        if pattern_path.is_file():
+            files = [pattern_path]
+        elif pattern_path.is_absolute():
+            files = [Path(p) for p in glob.glob(pattern)]
+        else:
+            files = sorted(Path().glob(pattern))
+        self.files = files
         self.index: List[Dict] = []
         for file in self.files:
             # Handle both .json and .jsonl formats
