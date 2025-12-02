@@ -22,7 +22,7 @@ set -e
 PROJECT_DIR="/blue/hmedeiros/qinruoyao/roomplan/vggt-qwen3-roomplan"
 CONFIG_FILE="configs/stage1_3d.yaml"
 # OUTPUT_DIR="ckpts/stage1_3d"
-OUTPUT_DIR="ckpts/stage1_3d_test"
+OUTPUT_DIR="ckpts/stage1_3d_new"
 
 # Parse arguments
 # Support optional --safe flag: usage: ./train_fixed.sh [--safe] [mode] [num_gpus]
@@ -326,7 +326,7 @@ fi
 echo "✅ $AVAILABLE_GPUS GPUs available (using $NUM_GPUS)"
 
 # Verify data
-if [ ! -f "data/processed/scanqa/train.jsonl" ] || [ ! -f "data/processed/sqa3d/train.jsonl" ]; then
+if [ ! -f "data/processed/scanqa/train_split.jsonl" ] || [ ! -f "data/processed/sqa3d/train_split.jsonl" ]; then
     echo "❌ Error: Training data not found in data/processed/"
     exit 1
 fi

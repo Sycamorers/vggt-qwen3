@@ -75,6 +75,7 @@ class MultiViewJsonDataset(Dataset):
             "question": sample.get("question") or sample.get("instruction"),
             "answer": sample.get("answer") or sample.get("action_json"),
             "task": sample.get("task", self.config.task),
+            "scene_id": sample.get("scene_id"),
         }
 
 

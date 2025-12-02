@@ -1,0 +1,23 @@
+{
+  "sqa3d": {
+    "total": 50,
+    "exact_match": 1,
+    "partial_match": 21,
+    "accuracy": 2.0,
+    "partial_accuracy": 44.0
+  },
+  "scanqa": {
+    "total": 50,
+    "exact_match": 2,
+    "partial_match": 6,
+    "accuracy": 4.0,
+    "partial_accuracy": 16.0
+  },
+  "arkit": {
+    "total": 1,
+    "exact_match": 0,
+    "partial_match": 0,
+    "accuracy": 0.0,
+    "partial_accuracy": 0.0
+  }
+}

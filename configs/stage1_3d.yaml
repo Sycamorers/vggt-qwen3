@@ -10,8 +10,8 @@ model:
 
 data:
   datasets:
-    scanqa: data/processed/scanqa/*.jsonl
-    sqa3d: data/processed/sqa3d/*.jsonl
+    scanqa: data/processed/scanqa/train_split.jsonl
+    sqa3d: data/processed/sqa3d/train_split.jsonl
   mix_ratio:
     scanqa: 0.7
     sqa3d: 0.3

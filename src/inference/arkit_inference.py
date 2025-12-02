@@ -15,6 +15,7 @@ from typing import Dict, List, Optional, Tuple
 
 import torch
 from transformers import AutoTokenizer, AutoModelForCausalLM
+from transformers.modeling_utils import load_sharded_checkpoint
 
 from src.dataio.dataset_builder import DatasetConfig, MultiViewJsonDataset
 from src.dataio.collate_multiview import build_default_transform
@@ -80,29 +81,30 @@ def load_checkpoint_if_available(model: torch.nn.Module, ckpt_dir: Optional[str]
         print(f"⚠️  Checkpoint directory {path} does not exist; running with base weights.")
         return
 
-    # Prefer merged fp32 folder if user ran zero_to_fp32.py (Stage 2/3 training).
-    # New, recommended name:
+    # Prefer merged fp32 folder if user ran zero_to_fp32.py (Stage 1/2 training).
     merged_root = path / "pytorch_model_fp32"
-    # Backwards-compat: some runs may have created a directory named
-    # "pytorch_model_fp32.bin" instead of a file; handle that too.
     legacy_merged_root = path / "pytorch_model_fp32.bin"
+
+    # If a sharded HF-style checkpoint exists, load it fully (not just shard 0).
+    for candidate in (merged_root, legacy_merged_root):
+        index_file = candidate / "pytorch_model.bin.index.json"
+        if candidate.exists() and index_file.exists():
+            print(f"🔄 Loading sharded checkpoint from {candidate} (using index)")
+            load_sharded_checkpoint(model, candidate)
+            return
+
     weight_files = []
     if merged_root.exists():
-        if merged_root.is_file():
-            # Single consolidated file.
-            weight_files = [merged_root]
-        else:
-            # Directory containing sharded fp32 weights: pick all *.bin inside.
-            weight_files = sorted(merged_root.glob("*.bin"))
+        weight_files = [merged_root] if merged_root.is_file() else sorted(merged_root.glob("*.bin"))
     elif legacy_merged_root.exists() and legacy_merged_root.is_dir():
-        # Legacy directory name used in early experiments.
         weight_files = sorted(legacy_merged_root.glob("*.bin"))
     else:
-        # Fallback: any flat *.bin / *.safetensors in the directory.
         weight_files = list(path.glob("*.bin")) + list(path.glob("*.safetensors"))
+
     if not weight_files:
         print(f"⚠️  No model weights found in {path}; using base HF weights.")
         return
+
     print(f"🔄 Loading checkpoint weights from {weight_files[0]}")
     state = torch.load(weight_files[0], map_location="cpu")
     missing, unexpected = model.load_state_dict(state, strict=False)
@@ -142,12 +144,48 @@ def build_tokenizer(model_name: str, tokenizer_path: Optional[str] = None):
     return tokenizer
 
 
+def _insert_vision_tokens(
+    input_ids: torch.Tensor,
+    attention_mask: torch.Tensor,
+    inputs_embeds: torch.Tensor,
+    vis_tokens: torch.Tensor,
+    image_token_id: int,
+) -> Tuple[torch.Tensor, torch.Tensor]:
+    """
+    Replace the <image> token with the full visual token span, expanding the
+    sequence and attention mask accordingly.
+    """
+    positions = (input_ids == image_token_id).nonzero(as_tuple=False)
+    if positions.numel() == 0:
+        return inputs_embeds, attention_mask
+
+    # Assume one <image> token per sample (matching training prompts).
+    b = positions[0, 0]
+    pos = positions[0, 1]
+    vis_len = vis_tokens.shape[1]
+
+    prefix = inputs_embeds[:, :pos, :]
+    suffix = inputs_embeds[:, pos + 1 :, :]
+    new_inputs = torch.cat([prefix, vis_tokens, suffix], dim=1)
+
+    attn_prefix = attention_mask[:, :pos]
+    attn_suffix = attention_mask[:, pos + 1 :]
+    vis_attn = torch.ones(
+        (attention_mask.size(0), vis_len),
+        device=attention_mask.device,
+        dtype=attention_mask.dtype,
+    )
+    new_mask = torch.cat([attn_prefix, vis_attn, attn_suffix], dim=1)
+    return new_inputs, new_mask
+
+
 @torch.no_grad()
 def run_inference(
     model: torch.nn.Module,
     tokenizer,
     samples: List[Dict],
     device: torch.device,
+    image_size: int,
     max_new_tokens: int = 256,
     output_path: Optional[Path] = None,
     compute_metrics: bool = True,
@@ -181,19 +219,18 @@ def run_inference(
 
         # Encode images via VGGT and inject tokens at <image> position
         if hasattr(model, "encode_images"):
-            transform = build_default_transform(448)
+            transform = build_default_transform(image_size)
             views = torch.stack([transform(img) for img in images], dim=0).unsqueeze(0)
             vis_tokens = model.encode_images(views.to(device))
-            inputs_embeds = model.text_model.get_input_embeddings()(input_ids)
-            positions = (input_ids == image_token_id).nonzero(as_tuple=False)
-            for b, pos in positions:
-                span = vis_tokens[b]
-                # Ensure we don't write past sequence length if the prompt
-                # is shorter than the number of visual tokens.
-                max_span = min(span.size(0), inputs_embeds.size(1) - pos)
-                if max_span <= 0:
-                    continue
-                inputs_embeds[b, pos : pos + max_span, :] = span[:max_span]
+            text_dtype = model.text_model.get_input_embeddings().weight.dtype
+            inputs_embeds = model.text_model.get_input_embeddings()(input_ids).to(text_dtype)
+            inputs_embeds, attention_mask = _insert_vision_tokens(
+                input_ids=input_ids,
+                attention_mask=attention_mask,
+                inputs_embeds=inputs_embeds,
+                vis_tokens=vis_tokens.to(text_dtype),
+                image_token_id=image_token_id,
+            )
             generated = model.text_model.generate(
                 inputs_embeds=inputs_embeds,
                 attention_mask=attention_mask,
@@ -317,6 +354,8 @@ def main() -> None:
 
     tokenizer = build_tokenizer(model_name, tokenizer_path)
     model, full_cfg = build_model_from_config(args.config, device=device)
+    # Ensure embeddings cover any tokenizer expansion (e.g., added <image> token).
+    model.text_model.resize_token_embeddings(len(tokenizer))
     load_checkpoint_if_available(model, args.checkpoint_dir)
 
     data_cfg = full_cfg["data"]
@@ -337,6 +376,7 @@ def main() -> None:
         tokenizer=tokenizer,
         samples=samples,
         device=device,
+        image_size=image_size,
         max_new_tokens=args.max_new_tokens,
         output_path=output_path,
         compute_metrics=not args.no_metrics,
