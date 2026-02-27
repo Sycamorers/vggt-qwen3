@@ -22,7 +22,7 @@ export NCCL_IB_DISABLE=0
 export TORCH_DISTRIBUTED_DEBUG=DETAIL
 
 torchrun --standalone --nproc_per_node=2 \
-  -m src.train.train_sft \
+  -m vggt_qwen3.train.stage1 \
   --config configs/stage1_3d.yaml \
   --deepspeed configs/deepspeed_zero3.json \
   --output_dir ckpts/stage1_3d

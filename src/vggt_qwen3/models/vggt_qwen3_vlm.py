@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+import os
 from typing import Dict, List, Optional, Tuple
 
 import torch
@@ -190,9 +191,31 @@ class VGGTQwen3VLM(nn.Module):
         inputs_embeds = self.text_model.get_input_embeddings()(input_ids)
         image_id = self.tokenizer.convert_tokens_to_ids("<image>")
         image_positions = (input_ids == image_id).nonzero(as_tuple=False)
+        debug_inject = os.getenv("VGGT_DEBUG_INJECT", "0") == "1"
+        if debug_inject and image_positions.numel() == 0:
+            raise RuntimeError(
+                "VGGT_DEBUG_INJECT=1 but no <image> token found in input_ids; "
+                "ensure the collator inserts '<image>' into every prompt."
+            )
+
+        seq_len = inputs_embeds.size(1)
         for batch_idx, pos in image_positions:
             span = features[batch_idx]
-            inputs_embeds[batch_idx, pos : pos + span.size(0), :] = span
+            end = pos + span.size(0)
+            if debug_inject:
+                if end > seq_len:
+                    raise RuntimeError(
+                        f"VGGT_DEBUG_INJECT: injection span [{pos}, {end}) exceeds "
+                        f"sequence length {seq_len} for batch index {batch_idx}."
+                    )
+                if labels is not None:
+                    label_slice = labels[batch_idx, pos:end]
+                    if (label_slice != -100).any():
+                        raise RuntimeError(
+                            "VGGT_DEBUG_INJECT: injection span overlaps answer tokens "
+                            f"(non -100 labels) for batch index {batch_idx}."
+                        )
+            inputs_embeds[batch_idx, pos:end, :] = span
         outputs = self.text_model(
             inputs_embeds=inputs_embeds,
             attention_mask=attention_mask,

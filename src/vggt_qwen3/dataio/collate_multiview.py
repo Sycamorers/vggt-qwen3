@@ -27,7 +27,14 @@ class MultiViewCollator:
         # Reserve space for visual tokens
         self.num_vis_tokens = num_vis_tokens
         self.geom_tokens = geom_tokens
+        # Minimum sequence length target; we still enforce a hard reserved span
+        # right after <image> at the token level.
         self.min_text_length = num_vis_tokens + geom_tokens + 64  # Visual + geom + minimum text
+        if self.max_length <= self.num_vis_tokens + self.geom_tokens + 16:
+            raise ValueError(
+                f"max_length={self.max_length} is too small for "
+                f"num_vis_tokens={self.num_vis_tokens}, geom_tokens={self.geom_tokens}"
+            )
 
     def __call__(self, batch: List[Dict]) -> Dict:
         pixel_batches = []
@@ -54,21 +61,45 @@ class MultiViewCollator:
         # Convert to bfloat16 if needed for mixed precision training
         # This will be handled by the model's autocast context
         pad_id = self.tokenizer.pad_token_id
+        image_id = self.tokenizer.convert_tokens_to_ids("<image>")
+        if image_id is None or (self.tokenizer.unk_token_id is not None and image_id == self.tokenizer.unk_token_id):
+            raise ValueError("MultiViewCollator requires a valid '<image>' token in the tokenizer vocabulary.")
+
+        reserved_span = self.num_vis_tokens + self.geom_tokens
         input_ids_list = []
         label_ids_list = []
         max_len = 0
         for prompt, answer in zip(texts, answers):
             prompt_ids = self.tokenizer(prompt, add_special_tokens=False)["input_ids"]
+            # Ensure exactly one <image> token and insert a reserved padding span
+            # immediately after it so the injection window never touches answer tokens.
+            image_positions = [idx for idx, tid in enumerate(prompt_ids) if tid == image_id]
+            if not image_positions:
+                raise ValueError(f"Prompt is missing <image> token: {prompt!r}")
+            if len(image_positions) > 1:
+                raise ValueError(f"Prompt has multiple <image> tokens; expected exactly one: {prompt!r}")
+            img_pos = image_positions[0]
+
+            if reserved_span > 0:
+                reserved_tokens = [pad_id] * reserved_span
+                prompt_ids = (
+                    prompt_ids[: img_pos + 1]
+                    + reserved_tokens
+                    + prompt_ids[img_pos + 1 :]
+                )
+
             answer_ids = self.tokenizer(answer, add_special_tokens=False)["input_ids"]
             ids = (prompt_ids + answer_ids)[: self.max_length]
+            # Labels are -100 on the entire prompt (including <image> and reserved span),
+            # and equal to answer token IDs on the answer region.
             labels_seq = ([-100] * len(prompt_ids) + answer_ids)[: self.max_length]
             max_len = max(max_len, len(ids))
             input_ids_list.append(ids)
             label_ids_list.append(labels_seq)
-        
-        # Ensure minimum length to accommodate visual tokens
+
+        # Ensure minimum length to accommodate visual tokens + some slack
         max_len = max(max_len, self.min_text_length)
-        
+
         for ids, labels_seq in zip(input_ids_list, label_ids_list):
             pad_amount = max_len - len(ids)
             if pad_amount > 0:

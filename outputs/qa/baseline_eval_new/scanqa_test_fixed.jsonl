@@ -1,0 +1,5 @@
+{"index": 0, "task": "scanqa", "scene_id": "scene0332_00", "question": "What color is the mattress on the bed?", "prediction": "", "reference": "black mattress"}
+{"index": 1, "task": "scanqa", "scene_id": "scene0047_00", "question": "What is below the microwave?", "prediction": "", "reference": "paper towel dispenser"}
+{"index": 2, "task": "scanqa", "scene_id": "scene0679_00", "question": "What color is the desk in the middle?", "prediction": "", "reference": "brown"}
+{"index": 3, "task": "scanqa", "scene_id": "scene0452_00", "question": "Where is the picture located?", "prediction": "", "reference": "on bottom right out of 5 pictures"}
+{"index": 4, "task": "scanqa", "scene_id": "scene0174_00", "question": "How many windows are in the wall?", "prediction": "", "reference": "1"}

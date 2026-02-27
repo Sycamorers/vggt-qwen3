@@ -7,8 +7,8 @@ from pathlib import Path
 import yaml
 from transformers import AutoTokenizer
 
-from src.dataio.dataset_builder import DatasetConfig, MultiViewJsonlDataset, MultiSourceDataset
-from src.dataio.collate_multiview import MultiViewCollator
+from vggt_qwen3.dataio.dataset_builder import DatasetConfig, MultiViewJsonlDataset, MultiSourceDataset
+from vggt_qwen3.dataio.collate_multiview import MultiViewCollator
 
 
 def test_dataset_loading(config_path: str):

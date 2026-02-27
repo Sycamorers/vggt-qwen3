@@ -17,10 +17,10 @@ from accelerate.utils import DistributedDataParallelKwargs
 from torch.utils.data import DataLoader
 from transformers import AutoTokenizer, get_cosine_schedule_with_warmup
 
-from src.dataio.collate_multiview import MultiViewCollator
-from src.dataio.dataset_builder import DatasetConfig, MultiSourceDataset, MultiViewJsonDataset
-from src.models.projector_perceiver import PerceiverConfig
-from src.models.vggt_qwen3_vlm import VGGTQwen3VLM, VisionLanguageConfig
+from vggt_qwen3.dataio.collate_multiview import MultiViewCollator
+from vggt_qwen3.dataio.dataset_builder import DatasetConfig, MultiSourceDataset, MultiViewJsonDataset
+from vggt_qwen3.models.projector_perceiver import PerceiverConfig
+from vggt_qwen3.models.vggt_qwen3_vlm import VGGTQwen3VLM, VisionLanguageConfig
 
 
 os.environ.setdefault("NCCL_P2P_DISABLE", "1")

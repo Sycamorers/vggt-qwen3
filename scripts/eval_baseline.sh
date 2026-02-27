@@ -27,7 +27,7 @@ echo "==========================================================================
 echo ""
 echo "📊 Evaluating SQA3D test set..."
 echo "--------------------------------------------------------------------------------"
-python -m src.inference.qa_inference \
+python -m vggt_qwen3.inference.qa_inference \
   --config "$CONFIG" \
   --checkpoint_dir "$CHECKPOINT_DIR" \
   --glob "data/processed/sqa3d/test_split.jsonl" \
@@ -40,7 +40,7 @@ python -m src.inference.qa_inference \
 echo ""
 echo "📊 Evaluating ScanQA test set..."
 echo "--------------------------------------------------------------------------------"
-python -m src.inference.qa_inference \
+python -m vggt_qwen3.inference.qa_inference \
   --config "$CONFIG" \
   --checkpoint_dir "$CHECKPOINT_DIR" \
   --glob "data/processed/scanqa/test_split.jsonl" \
@@ -53,7 +53,7 @@ python -m src.inference.qa_inference \
 echo ""
 echo "📊 Evaluating ARKit test set (all samples)..."
 echo "--------------------------------------------------------------------------------"
-python -m src.inference.qa_inference \
+python -m vggt_qwen3.inference.qa_inference \
   --config "$CONFIG" \
   --checkpoint_dir "$CHECKPOINT_DIR" \
   --glob "data/processed/arkit_synth/test.json" \

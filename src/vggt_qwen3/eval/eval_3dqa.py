@@ -8,7 +8,7 @@ from pathlib import Path
 
 from transformers import AutoTokenizer
 
-from src.models.vggt_qwen3_vlm import VGGTQwen3VLM, VisionLanguageConfig
+from vggt_qwen3.models.vggt_qwen3_vlm import VGGTQwen3VLM, VisionLanguageConfig
 
 
 def parse_args() -> argparse.Namespace:

@@ -7,8 +7,8 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from src.models.vggt_qwen3_vlm import VGGTQwen3VLM, VisionLanguageConfig
-from src.models.projector_perceiver import PerceiverConfig
+from vggt_qwen3.models.vggt_qwen3_vlm import VGGTQwen3VLM, VisionLanguageConfig
+from vggt_qwen3.models.projector_perceiver import PerceiverConfig
 
 
 def check_module_weights(module, name=""):

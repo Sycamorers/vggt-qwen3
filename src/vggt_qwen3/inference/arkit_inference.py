@@ -17,10 +17,10 @@ import torch
 from transformers import AutoTokenizer, AutoModelForCausalLM
 from transformers.modeling_utils import load_sharded_checkpoint
 
-from src.dataio.dataset_builder import DatasetConfig, MultiViewJsonDataset
-from src.dataio.collate_multiview import build_default_transform
-from src.models.projector_perceiver import PerceiverConfig
-from src.models.vggt_qwen3_vlm import VisionLanguageConfig
+from vggt_qwen3.dataio.dataset_builder import DatasetConfig, MultiViewJsonDataset
+from vggt_qwen3.dataio.collate_multiview import build_default_transform
+from vggt_qwen3.models.projector_perceiver import PerceiverConfig
+from vggt_qwen3.models.vggt_qwen3_vlm import VisionLanguageConfig
 
 
 def load_yaml(path: str) -> Dict:
@@ -53,7 +53,7 @@ def build_model_from_config(config_path: str, device: torch.device) -> torch.nn.
     # Rebuild the text model and projector in a lightweight wrapper so we can
     # call `.generate`. We intentionally do not rebuild the training wrapper
     # which expected loss labels.
-    from src.models.vggt_qwen3_vlm import VGGTQwen3VLM
+    from vggt_qwen3.models.vggt_qwen3_vlm import VGGTQwen3VLM
 
     base = VGGTQwen3VLM(vlm_cfg).to(device)
     base.eval()

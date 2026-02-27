@@ -1,0 +1,10 @@
+cff-version: 1.2.0
+message: "If you use VGGT-Qwen3 RoomPlan in your research, please cite this repository."
+title: "VGGT-Qwen3 RoomPlan: Stage-1 Multi-View 3D QA and RoomPlan Assistant"
+version: "0.1.0"
+authors:
+  - name: "VGGT-Qwen3 contributors"
+date-released: 2024-12-01
+repository-code: "https://github.com/openai/vggt-qwen3-roomplan"
+license: "Apache-2.0"
+

@@ -18,7 +18,7 @@ from pathlib import Path
 def run_inference(config, checkpoint_dir, glob_pattern, output_path, num_samples, max_tokens, device):
     """Run inference using the qa_inference module."""
     cmd = [
-        "python", "-m", "src.inference.qa_inference",
+        "python", "-m", "vggt_qwen3.inference.qa_inference",
         "--config", config,
         "--checkpoint_dir", checkpoint_dir,
         "--glob", glob_pattern,

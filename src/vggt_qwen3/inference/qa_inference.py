@@ -15,10 +15,10 @@ import random
 from transformers import AutoTokenizer
 from transformers.modeling_utils import load_sharded_checkpoint, load_state_dict as hf_load_state_dict
 
-from src.dataio.dataset_builder import DatasetConfig, MultiViewJsonDataset
-from src.dataio.collate_multiview import build_default_transform
-from src.models.projector_perceiver import PerceiverConfig
-from src.models.vggt_qwen3_vlm import VisionLanguageConfig
+from vggt_qwen3.dataio.dataset_builder import DatasetConfig, MultiViewJsonDataset
+from vggt_qwen3.dataio.collate_multiview import build_default_transform
+from vggt_qwen3.models.projector_perceiver import PerceiverConfig
+from vggt_qwen3.models.vggt_qwen3_vlm import VisionLanguageConfig
 
 
 def load_yaml(path: str) -> Dict:
@@ -41,7 +41,7 @@ def build_model_from_config(config_path: str, device: torch.device):
         freeze_vision=True,
         dtype=model_cfg.get("dtype", "bfloat16"),
     )
-    from src.models.vggt_qwen3_vlm import VGGTQwen3VLM
+    from vggt_qwen3.models.vggt_qwen3_vlm import VGGTQwen3VLM
 
     model = VGGTQwen3VLM(vlm_cfg).to(device)
     model.eval()
@@ -152,7 +152,7 @@ def run_inference(
     samples: List[Dict],
     device: torch.device,
     image_size: int,
-    max_new_tokens: int = 64,
+    max_new_tokens: int = 32,
     output_path: Optional[Path] = None,
 ) -> List[Dict]:
     results: List[Dict] = []
@@ -167,7 +167,15 @@ def run_inference(
         images = sample["images"]
         question = sample.get("question") or sample.get("instruction") or ""
         reference = sample.get("answer")
-        prompt = f"{question}\n<image>\n"
+        
+        # Apply chat template for Qwen model
+        messages = [
+            {
+                "role": "user",
+                "content": f"{question}\n<image>\nAnswer with a short phrase only.",
+            }
+        ]
+        prompt = tokenizer.apply_chat_template(messages, tokenize=False, add_generation_prompt=True)
 
         print(f"\n{'='*80}")
         print(f"[Sample {idx}] Processing question: {question}")
@@ -210,36 +218,18 @@ def run_inference(
             max_new_tokens=max_new_tokens,
             do_sample=False,
             num_beams=1,
-            eos_token_id=tokenizer.eos_token_id,
-            pad_token_id=tokenizer.pad_token_id,
-            repetition_penalty=1.1,
+             temperature=0.0,
+             top_p=1.0,
+             eos_token_id=tokenizer.eos_token_id,
+             pad_token_id=tokenizer.pad_token_id,
+             repetition_penalty=1.1,
         )
         print(f"Generated shape: {generated.shape}")
         print(f"Full generated IDs: {generated[0].tolist()}")
         
-        # Decode the full sequence - the tokenizer will handle removing the prompt text
-        text = tokenizer.decode(generated[0], skip_special_tokens=True)
-        # Remove the original question from the decoded text since it gets echoed
-        if text.startswith(question):
-            text = text[len(question):].strip()
-        # Also try to remove common prompt artifacts
-        text = text.replace("<image>", "").strip()
-        
-        # Extract concise answer - take first sentence or phrase before repetition
-        # For QA tasks, answers should be short like "brown", "left", "desk", etc.
-        if "." in text:
-            # Take first sentence
-            text = text.split(".")[0].strip()
-        
-        # If still verbose (e.g., "The table next to you is brown"), 
-        # try to extract the key answer (last word/phrase)
-        if len(text.split()) > 5:
-            # Common pattern: "The X is Y" -> extract Y
-            if " is " in text.lower():
-                parts = text.lower().split(" is ")
-                if len(parts) >= 2:
-                    # Get everything after the last "is"
-                    text = parts[-1].strip()
+        # Decode only the new tokens (skip the prompt)
+        new_tokens = generated[0, prompt_len:]
+        text = tokenizer.decode(new_tokens, skip_special_tokens=True).strip()
         
         print(f"Decoded text: {repr(text)}")
 

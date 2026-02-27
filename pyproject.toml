@@ -1,0 +1,32 @@
+[build-system]
+requires = ["setuptools>=64", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "vggt-qwen3-roomplan"
+version = "0.1.0"
+description = "VGGT-Qwen3 Stage-1 multi-view 3D QA and RoomPlan pipeline."
+readme = "README.md"
+requires-python = ">=3.9"
+license = { text = "Apache-2.0" }
+authors = [
+  { name = "VGGT-Qwen3 contributors" }
+]
+dependencies = [
+  "torch",
+  "torchvision",
+  "transformers>=4.40.0",
+  "accelerate>=0.27.0",
+  "Pillow",
+  "pyyaml",
+  "tqdm",
+]
+
+[project.urls]
+Homepage = "https://github.com/openai/vggt-qwen3-roomplan"
+Repository = "https://github.com/openai/vggt-qwen3-roomplan"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+include = ["vggt_qwen3*"]
+
