@@ -1,0 +1,13 @@
+Command:
+  CHECKPOINT_DIR=ckpts/stage1_3d_debug \
+  OUTPUT_JSONL=outputs/qa/scanqa_predictions_test.jsonl \
+  scripts/infer_stage1_scanqa.sh
+
+Evaluation:
+  scripts/eval_scanqa.sh \
+    --predictions outputs/qa/scanqa_predictions_test.jsonl \
+    --output_dir results/stage1_scanqa
+
+Git commit:
+  0cbb329d966bbb480accec59afc3d026b0302305
+

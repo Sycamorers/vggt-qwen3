@@ -57,3 +57,11 @@ env/.conda/
 .vscode/
 .idea/
 *.iml
+.cache/
+ckpts/
+outputs/
+logs/
+*.pyc
+__pycache__/
+*.egg-info/
+.hf_cache/

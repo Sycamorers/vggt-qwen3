@@ -19,7 +19,7 @@ from typing import Dict, List
 
 import torch
 
-from src.inference.qa_inference import (
+from vggt_qwen3.inference.qa_inference import (
     build_model_from_config,
     build_tokenizer,
     load_checkpoint_if_available,
@@ -148,4 +148,3 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
-

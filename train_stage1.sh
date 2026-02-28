@@ -8,6 +8,21 @@ OUTPUT_DIR="${OUTPUT_DIR:-ckpts/stage1_3d}"
 ACCELERATE_CONFIG="${ACCELERATE_CONFIG:-configs/accelerate_single_gpu.yaml}"
 DEEPSPEED_CONFIG="${DEEPSPEED_CONFIG:-}"
 
+# -----------------------------------------------------------------------------
+# Logging
+# -----------------------------------------------------------------------------
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+LOG_ROOT="${SCRIPT_DIR}/logs"
+LOG_DIR="${LOG_ROOT}/train"
+mkdir -p "${LOG_DIR}"
+
+TIMESTAMP="$(date +'%Y%m%d_%H%M%S')"
+CONFIG_BASENAME="$(basename "${CONFIG}")"
+LOG_FILE="${LOG_DIR}/train_stage1_${CONFIG_BASENAME%.yaml}_${TIMESTAMP}.log"
+
+exec > >(tee -a "${LOG_FILE}") 2>&1
+echo "📓 Logging to: ${LOG_FILE}"
+
 echo "Using config:         ${CONFIG}"
 echo "Output directory:     ${OUTPUT_DIR}"
 echo "Accelerate config:    ${ACCELERATE_CONFIG}"
@@ -24,4 +39,3 @@ fi
 
 echo "Running: ${cmd[*]}"
 "${cmd[@]}"
-
