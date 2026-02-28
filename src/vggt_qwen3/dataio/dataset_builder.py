@@ -78,6 +78,10 @@ class MultiViewJsonDataset(Dataset):
         sample = self.index[idx]
         images = sample["images"][: self.config.num_views]
         pil_images = [self._load_image(img) for img in images]
+
+        # Preserve common metadata fields so that downstream components
+        # (especially inference and debugging utilities) can build
+        # dataset-specific prompts such as SQA3D "situation" context.
         return {
             "images": pil_images,
             "geom_token": sample.get("geom_token"),
@@ -85,6 +89,8 @@ class MultiViewJsonDataset(Dataset):
             "answer": sample.get("answer") or sample.get("action_json"),
             "task": sample.get("task", self.config.task),
             "scene_id": sample.get("scene_id"),
+            "situation": sample.get("situation"),
+            "question_id": sample.get("question_id"),
         }
 
 

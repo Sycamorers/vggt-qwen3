@@ -35,6 +35,21 @@ fi
 MODE="${1:-full}"
 NUM_GPUS="${2:-2}"
 
+# -----------------------------------------------------------------------------
+# Logging
+# -----------------------------------------------------------------------------
+# Log all stdout/stderr for this run to a timestamped file under
+# $PROJECT_DIR/logs/train, while still streaming to the console.
+LOG_ROOT="${PROJECT_DIR}/logs"
+LOG_DIR="${LOG_ROOT}/train"
+mkdir -p "${LOG_DIR}"
+
+TIMESTAMP="$(date +'%Y%m%d_%H%M%S')"
+LOG_FILE="${LOG_DIR}/train_fixed_${MODE}_${NUM_GPUS}gpu_${TIMESTAMP}.log"
+
+exec > >(tee -a "${LOG_FILE}") 2>&1
+echo "📓 Logging to: ${LOG_FILE}"
+
 # Validate NUM_GPUS
 if ! [[ "$NUM_GPUS" =~ ^[1-8]$ ]]; then
     echo "❌ Error: NUM_GPUS must be between 1 and 8"
@@ -187,6 +202,10 @@ EFFECTIVE_BATCH=$((BATCH_PER_GPU * GRAD_ACCUM * NUM_GPUS))
             echo "ℹ️  No numeric cgroup memory limit discovered; proceeding with probe-based heuristics"
         fi
     fi
+
+    # Export training hyperparameters so the Python entrypoint can see them.
+    export BATCH_PER_GPU
+    export GRAD_ACCUM
 
     # Set PYTORCH_ALLOC_CONF which replaces deprecated PYTORCH_CUDA_ALLOC_CONF
     export PYTORCH_ALLOC_CONF=${PYTORCH_ALLOC_CONF:-"max_split_size_mb:256"}
@@ -372,7 +391,7 @@ echo ""
 set +e  # Don't exit on error yet
 accelerate launch \
     --config_file "$ACCELERATE_CONFIG" \
-    src/train/train_sft.py \
+    -m vggt_qwen3.train.stage1 \
     --config "$CONFIG_FILE" \
     --output_dir "$OUTPUT_DIR" \
     --max_steps "$MAX_STEPS"

@@ -34,10 +34,13 @@ class VGGTQwen3VLM(nn.Module):
         if "<image>" not in self.tokenizer.get_vocab():
             added = self.tokenizer.add_tokens(["<image>"])
         dtype = getattr(torch, config.dtype, torch.bfloat16) if isinstance(config.dtype, str) else torch.bfloat16
+        # Use low_cpu_mem_usage to avoid holding a full FP32 state_dict
+        # in memory for every rank simultaneously during loading.
         self.text_model = AutoModelForCausalLM.from_pretrained(
             config.text_model_name,
             torch_dtype=dtype,
             use_safetensors=True,
+            low_cpu_mem_usage=True,
         )
         if added:
             self.text_model.resize_token_embeddings(len(self.tokenizer))

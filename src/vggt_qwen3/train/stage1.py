@@ -8,6 +8,8 @@ import os
 from pathlib import Path
 from typing import Dict
 
+import platform
+import subprocess
 import time
 
 import torch
@@ -18,7 +20,11 @@ from torch.utils.data import DataLoader
 from transformers import AutoTokenizer, get_cosine_schedule_with_warmup
 
 from vggt_qwen3.dataio.collate_multiview import MultiViewCollator
-from vggt_qwen3.dataio.dataset_builder import DatasetConfig, MultiSourceDataset, MultiViewJsonDataset
+from vggt_qwen3.dataio.dataset_builder import (
+    DatasetConfig,
+    MultiSourceDataset,
+    MultiViewJsonDataset,
+)
 from vggt_qwen3.models.projector_perceiver import PerceiverConfig
 from vggt_qwen3.models.vggt_qwen3_vlm import VGGTQwen3VLM, VisionLanguageConfig
 
@@ -55,13 +61,98 @@ def build_dataloader(cfg: Dict, tokenizer) -> DataLoader:
         datasets[name] = MultiViewJsonDataset(ds_cfg)
     multi = MultiSourceDataset(datasets, cfg["mix_ratio"])
     collator = MultiViewCollator(cfg["image_size"], tokenizer, cfg["max_length"])
+    num_workers = int(os.getenv("DATALOADER_NUM_WORKERS", "0"))
     loader = DataLoader(
         multi,
         batch_size=cfg["train_batch_size"],
         shuffle=True,
         collate_fn=collator,
+        num_workers=num_workers,
     )
     return loader
+
+
+def _find_git_root(start: Path) -> Path | None:
+    """Walk upwards from `start` to find a `.git` directory, if any."""
+    for path in [start, *start.parents]:
+        if (path / ".git").exists():
+            return path
+    return None
+
+
+def write_repro_metadata(output_dir: Path, args: argparse.Namespace, stage_cfg: Dict) -> None:
+    """Write minimal but useful reproducibility metadata alongside checkpoints."""
+    meta_dir = output_dir / "meta"
+    meta_dir.mkdir(parents=True, exist_ok=True)
+
+    # 1) CLI args
+    args_path = meta_dir / "args.yaml"
+    with args_path.open("w", encoding="utf-8") as f:
+        yaml.safe_dump(
+            {
+                "config": args.config,
+                "output_dir": args.output_dir,
+                "max_steps": args.max_steps,
+            },
+            f,
+        )
+
+    # 2) Environment summary (Python, Torch, CUDA, pip freeze if available)
+    env_path = meta_dir / "env.txt"
+    with env_path.open("w", encoding="utf-8") as f:
+        f.write(f"Python: {platform.python_version()}\n")
+        f.write(f"Platform: {platform.platform()}\n")
+        f.write(f"Torch: {torch.__version__}\n")
+        f.write(f"CUDA available: {torch.cuda.is_available()}\n")
+        if torch.cuda.is_available():
+            f.write(f"CUDA version: {torch.version.cuda}\n")
+            f.write(f"Num GPUs: {torch.cuda.device_count()}\n")
+            for i in range(torch.cuda.device_count()):
+                f.write(f"  GPU {i}: {torch.cuda.get_device_name(i)}\n")
+        f.write("\n")
+
+        # Best-effort pip freeze
+        try:
+            proc = subprocess.run(
+                ["pip", "freeze"],
+                check=False,
+                capture_output=True,
+                text=True,
+            )
+            f.write("pip freeze:\n")
+            f.write(proc.stdout)
+        except Exception as exc:  # pragma: no cover - diagnostics only
+            f.write(f"\n[pip freeze failed: {exc}]\n")
+
+    # 3) Git metadata (commit + short status) if inside a git repo.
+    git_root = _find_git_root(Path.cwd())
+    git_path = meta_dir / "git.txt"
+    with git_path.open("w", encoding="utf-8") as f:
+        if git_root is None:
+            f.write("No .git directory found; skipping git metadata.\n")
+            return
+
+        try:
+            commit = subprocess.run(
+                ["git", "rev-parse", "HEAD"],
+                cwd=git_root,
+                check=False,
+                capture_output=True,
+                text=True,
+            ).stdout.strip()
+            f.write(f"Commit: {commit}\n")
+
+            status = subprocess.run(
+                ["git", "status", "--short", "--branch"],
+                cwd=git_root,
+                check=False,
+                capture_output=True,
+                text=True,
+            ).stdout
+            f.write("\nStatus:\n")
+            f.write(status)
+        except Exception as exc:  # pragma: no cover - diagnostics only
+            f.write(f"Git metadata collection failed: {exc}\n")
 
 
 def build_model(cfg: Dict) -> VGGTQwen3VLM:
@@ -95,6 +186,31 @@ def main() -> None:
     args = parse_args()
     stage_cfg = load_yaml(args.config)
 
+    # ------------------------------------------------------------------
+    # Lightweight overrides from the environment (used by train_fixed.sh)
+    # ------------------------------------------------------------------
+    # Allow external launch scripts to safely shrink the per-GPU batch size
+    # and gradient accumulation without editing the YAML config.
+    train_cfg = stage_cfg["train"]
+    batch_override = os.getenv("BATCH_PER_GPU")
+    if batch_override is not None:
+        try:
+            train_cfg["batch_size_per_gpu"] = int(batch_override)
+            print(f"[stage1] Overriding batch_size_per_gpu to {train_cfg['batch_size_per_gpu']} from BATCH_PER_GPU")
+        except ValueError:
+            print(f"[stage1] Ignoring invalid BATCH_PER_GPU={batch_override!r}")
+
+    grad_override = os.getenv("GRAD_ACCUM")
+    if grad_override is not None:
+        try:
+            train_cfg["grad_accum"] = int(grad_override)
+            print(f"[stage1] Overriding grad_accum to {train_cfg['grad_accum']} from GRAD_ACCUM")
+        except ValueError:
+            print(f"[stage1] Ignoring invalid GRAD_ACCUM={grad_override!r}")
+
+    output_dir = Path(args.output_dir)
+    output_dir.mkdir(parents=True, exist_ok=True)
+
     tokenizer = build_tokenizer(
         stage_cfg["model"]["name_or_path"],
         stage_cfg["model"].get("tokenizer_path"),
@@ -104,11 +220,35 @@ def main() -> None:
     # Data & model
     # --------------------
     data_cfg = stage_cfg["data"]
-    data_cfg["train_batch_size"] = stage_cfg["train"]["batch_size_per_gpu"]
+    # Use the (possibly overridden) training batch size.
+    data_cfg["train_batch_size"] = train_cfg["batch_size_per_gpu"]
     dataloader = build_dataloader(data_cfg, tokenizer)
-    model = build_model(stage_cfg)
 
-    train_cfg = stage_cfg["train"]
+    # Basic dataset sanity checks (sizes, sample keys/shapes).
+    dataset = dataloader.dataset
+    total_samples = len(dataset)
+    if total_samples == 0:
+        raise RuntimeError(
+            "Training dataloader is empty. Check that your data.globs in the "
+            "stage config match existing JSON/JSONL files and contain records."
+        )
+    if isinstance(dataset, MultiSourceDataset):
+        per_source = {name: len(ds) for name, ds in dataset.datasets.items()}
+        print(f"Loaded datasets: {per_source} (total={total_samples})")
+    else:
+        print(f"Loaded dataset with {total_samples} samples.")
+
+    # One tiny CPU batch to log tensor shapes / keys.
+    sample_batch = next(iter(dataloader))
+    print(
+        "Sample batch keys and shapes: "
+        + ", ".join(
+            f"{k}: {tuple(v.shape) if hasattr(v, 'shape') else type(v)}"
+            for k, v in sample_batch.items()
+        )
+    )
+
+    model = build_model(stage_cfg)
     max_steps = args.max_steps or train_cfg["max_steps"]
     grad_accum = train_cfg["grad_accum"]
     precision = train_cfg["precision"]
@@ -120,7 +260,9 @@ def main() -> None:
     if args.deepspeed:
         deepspeed_plugin = DeepSpeedPlugin(zero_stage=3, config_file=args.deepspeed)
 
-    logging_dir = Path(args.output_dir) / "logs"
+    logging_dir = output_dir / "logs"
+    logging_dir.mkdir(parents=True, exist_ok=True)
+    events_path = logging_dir / "events.jsonl"
     ddp_kwargs = DistributedDataParallelKwargs(find_unused_parameters=True)
 
     accelerator = Accelerator(
@@ -170,6 +312,9 @@ def main() -> None:
     )
 
     accelerator.init_trackers("roomplan", config={"stage": args.config})
+
+    if accelerator.is_main_process:
+        write_repro_metadata(output_dir, args, stage_cfg)
 
     # --------------------
     # 定义一个安全的保存函数：所有 rank 都参与 save_state
@@ -243,6 +388,18 @@ def main() -> None:
             )
 
             accelerator.log({"loss": loss.item(), "step": step})
+
+            # Structured JSONL event log (one line per logging step).
+            event = {
+                "step": int(step),
+                "loss": float(loss.item()),
+                "lr_base": float(base_lr),
+                "lr_proj": float(proj_lr),
+                "steps_per_sec": float(steps_per_sec),
+                "eta_hours": float(eta_hours),
+            }
+            with events_path.open("a", encoding="utf-8") as f:
+                f.write(json.dumps(event) + "\n")
 
         step += 1
 

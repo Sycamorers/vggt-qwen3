@@ -133,10 +133,9 @@ Stage-1 workflows should use the following entry points:
   python -m vggt_qwen3.inference.qa_inference \
     --config configs/stage1_3d.yaml \
     --checkpoint_dir ckpts/stage1_3d \
-    --glob "data/processed/scanqa/test_split.jsonl" \
+    --dataset scanqa \
     --num_samples 200 \
-    --max_new_tokens 32 \
-    --output_jsonl outputs/qa/scanqa_predictions_test.jsonl
+    --max_new_tokens 32
   ```
 
   or via wrapper:
@@ -169,4 +168,3 @@ When adding new features or stages:
   - Dedicated config files and package modules.
   - Canonical training/inference entry points.
   - Separate user vs. maintainer docs.
-

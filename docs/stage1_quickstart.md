@@ -142,10 +142,9 @@ Stage-1 QA inference uses the trained VGGT-Qwen3 model to answer ScanQA/SQA3D qu
 python -m vggt_qwen3.inference.qa_inference \
   --config configs/stage1_3d.yaml \
   --checkpoint_dir ckpts/stage1_3d \
-  --glob "data/processed/scanqa/test_split.jsonl" \
+  --dataset scanqa \
   --num_samples 200 \
-  --max_new_tokens 32 \
-  --output_jsonl outputs/qa/scanqa_predictions_test.jsonl
+  --max_new_tokens 32
 ```
 
 Or, using the thin wrapper:
@@ -157,7 +156,8 @@ Or, using the thin wrapper:
 By default, the Stage-1 inference script:
 
 - Builds prompts of the form:
-  - `"{question}\n<image>\nAnswer with a short phrase only."`
+  - ScanQA: `"{question}\n<image>\nAnswer with a short phrase only."`
+  - SQA3D: `"Situation: {situation}\nQuestion: {question}\n<image>\nAnswer with a short phrase only."`
 - Applies the Qwen3 chat template (via `tokenizer.apply_chat_template`).
 - Injects visual tokens at the `<image>` placeholder.
 - Generates with:
@@ -224,4 +224,3 @@ Common issues:
 For deeper debugging and the history of injection-related fixes, see:
 
 - `docs/dev/debug_history.md`
-

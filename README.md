@@ -50,7 +50,7 @@ Stage 2 / RoomPlan JSON actions are not documented here beyond brief “future w
 - Recommended Python: **3.9+**.
 - Recommended: conda environment.
 
-Using conda:
+Using conda (general GPUs like V100/A100/H100):
 
 ```bash
 conda env create -f env/environment.yml
@@ -64,6 +64,44 @@ python -m venv .venv
 source .venv/bin/activate
 pip install -r requirements.txt
 pip install -e .
+```
+
+#### NVIDIA B200 / Blackwell GPUs (sm_100)
+
+If you are running on NVIDIA B200 (compute capability `sm_100`), the default `env/environment.yml` (PyTorch 2.4.0) may not support this architecture. In that case, create a dedicated environment using a newer PyTorch build that includes B200 support:
+
+```bash
+# From the repo root, on a node with CUDA 12.9+ available
+# (adjust the module name to your cluster)
+module load cuda/12.9.1   # or similar
+
+conda create -n roomplan-b200 python=3.10 -y
+conda activate roomplan-b200
+
+# Install a PyTorch build that supports NVIDIA B200 (sm_100)
+pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu128
+
+# Install remaining dependencies without overriding the CUDA-enabled PyTorch
+pip install -r requirements.txt --no-deps
+
+# Install this repo and VGGT in editable mode
+pip install -e .
+pip install -e third_party/vggt
+
+# (Optional) logging / training extras
+pip install --no-build-isolation deepspeed tensorboard
+```
+
+You can verify that your PyTorch build sees the B200 architecture via:
+
+```bash
+python -c "import torch; print(torch.__version__, torch.cuda.get_arch_list())"
+```
+
+Look for `"sm_100"` in the printed list. Once this environment is active, use the standard training commands (for example, single-GPU DeepSpeed):
+
+```bash
+ACCELERATE_CONFIG=configs/accelerate_1gpu.yaml ./train_stage1.sh
 ```
 
 ### Third-party dependencies
@@ -171,6 +209,19 @@ ACCELERATE_CONFIG=configs/accelerate_4gpu.yaml ./train_stage1.sh
 
 On Slurm/HiPerGator, wrap this command in an `sbatch` script that requests the appropriate number of GPUs and nodes. See the existing `scripts/slurm/` files and `docs/SLURM_TRAINING_GUIDE.md` for patterns (note: Stage 2 scripts are future work).
 
+#### 4-GPU `torchrun` example
+
+If you prefer launching the Stage-1 harness directly with `torchrun` (using Accelerate only as a library), you can run:
+
+```bash
+torchrun --standalone --nproc_per_node=4 -m vggt_qwen3.train.stage1 \
+  --config configs/stage1_3d.yaml \
+  --output_dir ckpts/stage1_3d \
+  --max_steps 30000
+```
+
+This uses standard DDP instead of the `accelerate launch` CLI, but the training loop and logging behavior are identical.
+
 ### Optional: DeepSpeed ZeRO-3
 
 If you want DeepSpeed ZeRO-3, pass a DeepSpeed config via `DEEPSPEED_CONFIG`:
@@ -189,37 +240,105 @@ Internally, `vggt_qwen3.train.stage1`:
   - Qwen3-4B with partial freezing and LoRA.
 - Splits parameters into base vs projector/geom parameter groups with separate LRs.
 - Uses a cosine LR schedule with warmup.
+- Writes reproducibility metadata under the chosen `--output_dir`:
+  - `logs/events.jsonl` – structured training metrics (loss, LR, speed, ETA).
+  - `meta/args.yaml` – CLI arguments for the run.
+  - `meta/env.txt` – Python/Torch/CUDA summary and `pip freeze`.
+  - `meta/git.txt` – git commit and status (when available).
 
 ## Inference / Evaluation (Stage 1)
 
 Stage-1 QA inference uses:
 
 - `vggt_qwen3.inference.qa_inference`
+- The shell wrapper `infer_stage1.sh`
 
-### Canonical inference command
+### ScanQA only
 
-```bash
-python -m vggt_qwen3.inference.qa_inference   --config configs/stage1_3d.yaml   --checkpoint_dir ckpts/stage1_3d   --glob "data/processed/scanqa/test_split.jsonl"   --num_samples 200   --max_new_tokens 32   --output_jsonl outputs/qa/scanqa_predictions_test.jsonl
-```
-
-Or, via the wrapper:
+Wrapper (recommended):
 
 ```bash
+CONFIG=configs/stage1_3d.yaml \
+CHECKPOINT_DIR=ckpts/stage1_3d \
+DATASET=scanqa \
 ./infer_stage1.sh
 ```
 
-You can override:
+Equivalent Python command:
 
-- `CONFIG`, `CHECKPOINT_DIR`, `GLOB`, `NUM_SAMPLES`, `MAX_NEW_TOKENS`, `OUTPUT_JSONL`, `DEVICE`.
+```bash
+python -m vggt_qwen3.inference.qa_inference \
+  --config configs/stage1_3d.yaml \
+  --checkpoint_dir ckpts/stage1_3d \
+  --dataset scanqa \
+  --num_samples 200 \
+  --max_new_tokens 32
+```
 
-### Short-answer constraint
+Defaults:
+
+- Glob: `data/processed/scanqa/test_split.jsonl`
+- Predictions: `outputs/qa/scanqa/scanqa_predictions_test.jsonl`
+- Events log: `outputs/qa/scanqa/scanqa_predictions_test.jsonl.events.jsonl`
+
+### SQA3D only
+
+Wrapper:
+
+```bash
+CONFIG=configs/stage1_3d.yaml \
+CHECKPOINT_DIR=ckpts/stage1_3d \
+DATASET=sqa3d \
+./infer_stage1.sh
+```
+
+Equivalent Python:
+
+```bash
+python -m vggt_qwen3.inference.qa_inference \
+  --config configs/stage1_3d.yaml \
+  --checkpoint_dir ckpts/stage1_3d \
+  --dataset sqa3d \
+  --num_samples 200 \
+  --max_new_tokens 32
+```
+
+Defaults:
+
+- Glob: `data/processed/sqa3d/test_split.jsonl`
+- Predictions: `outputs/qa/sqa3d/sqa3d_predictions_test.jsonl`
+- Events log: `outputs/qa/sqa3d/sqa3d_predictions_test.jsonl.events.jsonl`
+
+### Combined ScanQA + SQA3D
+
+Run both datasets in a single call:
+
+```bash
+python -m vggt_qwen3.inference.qa_inference \
+  --config configs/stage1_3d.yaml \
+  --checkpoint_dir ckpts/stage1_3d \
+  --dataset scanqa+sqa3d \
+  --num_samples 200 \
+  --max_new_tokens 32
+```
+
+This produces both prediction files listed above (one per dataset) plus per-dataset `.events.jsonl` logs.
+
+### Short-answer constraint & prompts
 
 The QA inference script builds prompts using the Qwen3 chat template with a short-answer hint:
 
 ```text
-{question}
-<image>
-Answer with a short phrase only.
+ScanQA (no situation text):
+  {question}
+  <image>
+  Answer with a short phrase only.
+
+SQA3D (includes “situation” when present):
+  Situation: {situation}
+  Question: {question}
+  <image>
+  Answer with a short phrase only.
 ```
 
 Generation settings:
@@ -231,11 +350,13 @@ Generation settings:
 
 This combination encourages deterministic, concise answers suitable for exact-match evaluation.
 
-### Outputs and evaluation
+### Outputs, logs, and metrics
 
-The inference module writes a JSONL file with per-sample records:
-
-- `question`, `prediction`, `reference`, `scene_id`, `task`, etc.
+- Per-sample predictions are written as JSONL records with:
+  - `question`, `prediction`, `reference`, `scene_id`, `task`, etc.
+- A companion `*.events.jsonl` file logs:
+  - Dataset name, number of samples, number of generations, and how many predictions were non-empty.
+  - One event per sample plus a final summary event.
 
 For quick metrics, you can use:
 
@@ -274,6 +395,17 @@ Key paths:
 
 Common issues and tips:
 
+- **Stage-1 inference returns empty predictions**
+  - Symptom: every line in the JSONL file has an empty `prediction` string, or the script raises a `RuntimeError` stating that no non-empty predictions were produced.
+  - Checklist:
+    - Verify that test splits exist and are non-empty:
+      - `data/processed/scanqa/test_split.jsonl`
+      - `data/processed/sqa3d/test_split.jsonl`
+    - Re-run with debug mode to inspect prompts and token IDs:
+      - `python -m vggt_qwen3.inference.qa_inference --dataset scanqa --debug --debug_max_samples 4 ...`
+    - Inspect the companion `*.events.jsonl` file to confirm `total_non_empty_predictions > 0`.
+    - If `total_generations_attempted > 0` but all decoded strings are empty, suspect a tokenizer decode issue (special-tokens-only outputs); the debug logs print both `skip_special_tokens=True` and `False` decodes and raw token IDs to help diagnose.
+
 - **Missing `<image>` token**
   - Symptom: `MultiViewCollator` or model raises an error about missing `<image>` or uses `unk` ID.
   - Fix: use the provided tokenizer builders in `train.stage1` and `qa_inference`; avoid custom tokenization that bypasses them.
@@ -284,6 +416,19 @@ Common issues and tips:
 - **dtype or device mismatches**
   - On GPU, Stage 1 uses bf16 by default; ensure your hardware supports it.
   - On CPU, you may want to run with float32 (adjust `model.dtype` in the config or via the wrapper if needed).
+
+- **Cleaning artifacts (checkpoints, logs, outputs)**
+  - To safely remove training and inference artifacts without touching code or data:
+    ```bash
+    # Dry run – prints what would be removed
+    python scripts/clean_artifacts.py
+
+    # Actual deletion (requires confirmation flag or env var)
+    python scripts/clean_artifacts.py --yes
+    # or
+    CONFIRM=1 python scripts/clean_artifacts.py
+    ```
+  - This script only targets `ckpts/`, `outputs/`, `logs/`, `runs/`, `results/`, and `pytorchdist_*.out` files under the repo root.
 
 For a deeper engineering/debugging history (including injection fixes), see:
 

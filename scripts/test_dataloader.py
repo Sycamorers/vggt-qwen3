@@ -7,7 +7,7 @@ from pathlib import Path
 import yaml
 from transformers import AutoTokenizer
 
-from vggt_qwen3.dataio.dataset_builder import DatasetConfig, MultiViewJsonlDataset, MultiSourceDataset
+from vggt_qwen3.dataio.dataset_builder import DatasetConfig, MultiViewJsonDataset, MultiSourceDataset
 from vggt_qwen3.dataio.collate_multiview import MultiViewCollator
 
 
@@ -54,7 +54,7 @@ def test_dataset_loading(config_path: str):
             task=name
         )
         try:
-            dataset = MultiViewJsonlDataset(ds_cfg)
+            dataset = MultiViewJsonDataset(ds_cfg)
             datasets[name] = dataset
             print(f"   ✅ Loaded {len(dataset)} samples from '{name}'")
         except FileNotFoundError as e:
@@ -87,6 +87,11 @@ def test_dataset_loading(config_path: str):
         print(f"      - Answer: {sample['answer'][:80]}...")
         print(f"      - Task: {sample['task']}")
         print(f"      - Geom token: {sample['geom_token']}")
+        # Basic tokenizer round-trip sanity check on the question text.
+        q_text = sample["question"]
+        encoded = tokenizer(q_text, add_special_tokens=False)
+        decoded = tokenizer.decode(encoded["input_ids"], skip_special_tokens=False)
+        print(f"      - Tokenizer roundtrip: {decoded[:80]!r}")
     except Exception as e:
         print(f"   ❌ Failed to load sample: {e}")
         import traceback
