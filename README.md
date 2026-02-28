@@ -358,12 +358,46 @@ This combination encourages deterministic, concise answers suitable for exact-ma
   - Dataset name, number of samples, number of generations, and how many predictions were non-empty.
   - One event per sample plus a final summary event.
 
-For quick metrics, you can use:
+### Published example results
 
-- `scripts/eval_baseline.sh` (shell wrapper).
-- `scripts/eval_baseline_quick.py` (Python script).
+This repository ships small, versioned inference artifacts for reproducibility:
 
-These scripts compute exact-match and partial-match accuracy on ScanQA/SQA3D and optionally ARKit-style JSON outputs (Stage 2/3-style, currently for reference only).
+- `results/stage1_scanqa/`
+  - `predictions_test.jsonl` – full ScanQA predictions for a Stage-1 debug checkpoint.
+  - `predictions_test.sample.jsonl` – first 200 predictions for quick inspection.
+  - `metrics.json` – basic metrics (`num_examples`, `num_non_empty_predictions`, `exact_match`).
+  - `command.txt` – exact commands + git commit hash used to generate the run.
+
+- `results/stage1_sqa3d/`
+  - `predictions_test.jsonl` – full SQA3D predictions.
+  - `predictions_test.sample.jsonl` – first 200 predictions.
+  - `metrics.json` – same metric schema as above.
+  - `command.txt` – commands + commit hash.
+
+To regenerate these artifacts on a new machine:
+
+```bash
+# ScanQA
+CHECKPOINT_DIR=ckpts/stage1_3d_debug \
+OUTPUT_JSONL=outputs/qa/scanqa_predictions_test.jsonl \
+scripts/infer_stage1_scanqa.sh
+
+scripts/eval_scanqa.sh \
+  --predictions outputs/qa/scanqa_predictions_test.jsonl \
+  --output_dir results/stage1_scanqa
+
+# SQA3D
+CHECKPOINT_DIR=ckpts/stage1_3d_debug \
+OUTPUT_JSONL=outputs/qa/sqa3d_predictions_test.jsonl \
+DATASET=sqa3d \
+./infer_stage1.sh
+
+scripts/eval_scanqa.sh \
+  --predictions outputs/qa/sqa3d_predictions_test.jsonl \
+  --output_dir results/stage1_sqa3d
+```
+
+For more detailed evaluation beyond exact match, see `docs/evaluation.md`.
 
 ## Repository layout
 
