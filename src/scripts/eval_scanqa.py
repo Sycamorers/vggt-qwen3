@@ -19,14 +19,14 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--predictions",
         type=str,
-        default="outputs/qa/scanqa_predictions_test.jsonl",
+        default="outputs/qa/scanqa/scanqa_predictions_test.jsonl",
         help="Path to predictions JSONL file.",
     )
     parser.add_argument(
         "--output_dir",
         type=str,
         default="results/stage1_scanqa",
-        help="Directory where metrics.json will be written.",
+        help="Directory where metrics.json will be written (kept for metrics only).",
     )
     return parser.parse_args()
 
@@ -76,4 +76,3 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
-

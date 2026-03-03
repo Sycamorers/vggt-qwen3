@@ -732,8 +732,21 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--num_samples",
         type=int,
-        default=20,
-        help="Number of samples to run (unique scenes, random order).",
+        default=0,
+        help=(
+            "Optional cap on the number of records to run. "
+            "0 or a negative value means 'use all records'. "
+            "When used together with --unique_scenes, the cap "
+            "applies to the deduplicated scene set."
+        ),
+    )
+    parser.add_argument(
+        "--unique_scenes",
+        action="store_true",
+        help=(
+            "If set, evaluate at most one QA example per scene_id. "
+            "By default, every record in the split is evaluated."
+        ),
     )
     parser.add_argument(
         "--max_new_tokens",
@@ -946,31 +959,69 @@ def main() -> None:
                 "Check that test_split.jsonl exists and contains records."
             )
 
-        # Randomly pick up to num_samples unique scenes to avoid re-using the full training set.
-        rng = random.Random(args.seed)
-        all_indices = list(range(len(dataset)))
-        rng.shuffle(all_indices)
-        seen = set()
-        picked: List[int] = []
-        for idx in all_indices:
-            # Access raw metadata instead of loading images
-            scene_id = dataset.index[idx].get("scene_id")
-            if scene_id in seen:
-                continue
-            seen.add(scene_id)
-            picked.append(idx)
-            if len(picked) >= args.num_samples:
-                break
+        total_records = len(dataset)
+        all_indices = list(range(total_records))
 
-        if args.debug:
-            picked = picked[: args.debug_max_samples]
+        # ------------------------------------------------------------------
+        # Build the list of indices to evaluate.
+        # By default we iterate ALL records in deterministic order.
+        # Optional flags:
+        #   --unique_scenes  → collapse to one record per scene_id.
+        #   --num_samples>0  → random subset (with fixed seed) of indices.
+        #   --debug          → further cap to --debug_max_samples.
+        # ------------------------------------------------------------------
+        sampling_notes: List[str] = []
 
-        samples = [dataset[i] for i in picked]
+        # Optional unique-scene mode.
+        if args.unique_scenes:
+            seen_scenes = set()
+            unique_indices: List[int] = []
+            for idx in all_indices:
+                scene_id = dataset.index[idx].get("scene_id")
+                key = scene_id if scene_id is not None else f"__idx_{idx}"
+                if key in seen_scenes:
+                    continue
+                seen_scenes.add(key)
+                unique_indices.append(idx)
+            base_indices = unique_indices
+            sampling_notes.append(
+                f"unique_scenes=True (reduced from {total_records} to {len(base_indices)} records)"
+            )
+        else:
+            base_indices = all_indices
 
-        print(
-            f"Prepared {len(samples)} samples "
-            f"(unique scenes) from {len(dataset)} total records."
-        )
+        # Optional random subsampling.
+        limit = args.num_samples if args.num_samples and args.num_samples > 0 else None
+        if limit is not None and len(base_indices) > limit:
+            rng = random.Random(args.seed)
+            shuffled = base_indices.copy()
+            rng.shuffle(shuffled)
+            selected_indices = shuffled[:limit]
+            sampling_notes.append(
+                f"num_samples={limit} (random subset with seed={args.seed})"
+            )
+        else:
+            selected_indices = base_indices
+
+        # Optional debug cap (always applied last).
+        if args.debug and args.debug_max_samples is not None and args.debug_max_samples > 0:
+            if len(selected_indices) > args.debug_max_samples:
+                selected_indices = selected_indices[: args.debug_max_samples]
+                sampling_notes.append(f"debug_max_samples={args.debug_max_samples}")
+
+        num_selected = len(selected_indices)
+
+        print(f"  Total records in split: {total_records}")
+        if sampling_notes:
+            print("  Active sampling/filtering:")
+            for note in sampling_notes:
+                print(f"    - {note}")
+        else:
+            print("  Active sampling/filtering: none (full split).")
+        print(f"  Records selected for inference: {num_selected}")
+
+        # Materialize samples (this is where images are loaded).
+        samples = [dataset[i] for i in selected_indices]
 
         output_path = Path(output_jsonl) if output_jsonl else None
         events_path = (
@@ -979,7 +1030,7 @@ def main() -> None:
             else None
         )
 
-        run_inference(
+        results = run_inference(
             model=model,
             tokenizer=tokenizer,
             samples=samples,
@@ -994,6 +1045,20 @@ def main() -> None:
             debug_one=args.debug_one,
             generation_kwargs=gen_kwargs,
             verbose_samples=args.verbose_samples,
+        )
+
+        num_predictions = len(results)
+        if num_predictions != num_selected:
+            raise RuntimeError(
+                f"Sanity check failed for dataset '{dataset_name}': "
+                f"selected {num_selected} records but wrote {num_predictions} predictions."
+            )
+
+        summary_path = str(output_jsonl) if output_jsonl else "<stdout only>"
+        print(
+            f"✅ Dataset '{dataset_name}': loaded {total_records} records, "
+            f"ran inference on {num_selected} records, "
+            f"wrote {num_predictions} predictions to {summary_path}."
         )
 
 

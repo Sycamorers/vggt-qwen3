@@ -4,8 +4,8 @@
 #
 # Example:
 #   CHECKPOINT_DIR=ckpts/stage1_3d_debug \
-#   OUTPUT_JSONL=outputs/qa/scanqa_predictions_test.jsonl \
-#   scripts/infer_stage1_scanqa.sh
+#   OUTPUT_JSONL=outputs/qa/scanqa/scanqa_predictions_test.jsonl \
+#   src/scripts/infer_stage1_scanqa.sh
 #
 
 set -euo pipefail
@@ -16,10 +16,9 @@ REPO_ROOT="${SCRIPT_DIR}/.."
 cd "${REPO_ROOT}"
 
 : "${CHECKPOINT_DIR:=ckpts/stage1_3d_debug}"
-: "${OUTPUT_JSONL:=outputs/qa/scanqa_predictions_test.jsonl}"
+: "${OUTPUT_JSONL:=outputs/qa/scanqa/scanqa_predictions_test.jsonl}"
 
 CHECKPOINT_DIR="${CHECKPOINT_DIR}" \
 OUTPUT_JSONL="${OUTPUT_JSONL}" \
 DATASET="scanqa" \
 ./infer_stage1.sh "$@"
-

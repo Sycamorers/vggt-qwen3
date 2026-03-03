@@ -143,7 +143,6 @@ python -m vggt_qwen3.inference.qa_inference \
   --config configs/stage1_3d.yaml \
   --checkpoint_dir ckpts/stage1_3d \
   --dataset scanqa \
-  --num_samples 200 \
   --max_new_tokens 32
 ```
 
@@ -163,6 +162,12 @@ By default, the Stage-1 inference script:
 - Generates with:
   - `temperature=0.0`, `top_p=1.0`, `num_beams=1`
   - `max_new_tokens` configurable (default 32)
+
+If you want to evaluate only a subset of the split, you can pass:
+
+- `--num_samples N` to cap the number of records (random, reproducible subset).
+- `--unique_scenes` (together with `--num_samples`) to sample at most one QA
+  per `scene_id`.
 
 ### Short-answer constraint
 

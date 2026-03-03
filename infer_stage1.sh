@@ -6,20 +6,21 @@ set -euo pipefail
 CONFIG="${CONFIG:-configs/stage1_3d.yaml}"
 CHECKPOINT_DIR="${CHECKPOINT_DIR:-ckpts/stage1_3d}"
 DATASET="${DATASET:-scanqa}"   # scanqa | sqa3d | scanqa+sqa3d
-NUM_SAMPLES="${NUM_SAMPLES:-200}"
+NUM_SAMPLES="${NUM_SAMPLES:-0}"   # 0 => run full split
 MAX_NEW_TOKENS="${MAX_NEW_TOKENS:-32}"
 DEVICE="${DEVICE:-cuda:0}"
 ALLOW_BASE_FALLBACK="${ALLOW_BASE_FALLBACK:-0}"
 SHORT_ANSWER_ONLY="${SHORT_ANSWER_ONLY:-1}"
+UNIQUE_SCENES="${UNIQUE_SCENES:-0}"  # 1 => one QA per scene_id
 
 # Default output location if not provided by the caller.
 if [[ -z "${OUTPUT_JSONL:-}" ]]; then
   case "${DATASET}" in
     scanqa)
-      OUTPUT_JSONL="outputs/qa/scanqa_predictions_test.jsonl"
+      OUTPUT_JSONL="outputs/qa/scanqa/scanqa_predictions_test.jsonl"
       ;;
     sqa3d)
-      OUTPUT_JSONL="outputs/qa/sqa3d_predictions_test.jsonl"
+      OUTPUT_JSONL="outputs/qa/sqa3d/sqa3d_predictions_test.jsonl"
       ;;
     *)
       OUTPUT_JSONL="outputs/qa/qa_predictions_test.jsonl"
@@ -46,6 +47,7 @@ echo "Config:          ${CONFIG}"
 echo "Checkpoint dir:  ${CHECKPOINT_DIR}"
 echo "Dataset:         ${DATASET}"
 echo "Num samples:     ${NUM_SAMPLES}"
+echo "Unique scenes:   ${UNIQUE_SCENES}"
 echo "Max new tokens:  ${MAX_NEW_TOKENS}"
 echo "Device:          ${DEVICE}"
 echo "Output JSONL:    ${OUTPUT_JSONL}"
@@ -62,6 +64,11 @@ if [[ "${SHORT_ANSWER_ONLY}" == "1" ]]; then
   SHORT_FLAG=(--short_answer_only)
 fi
 
+UNIQUE_SCENES_FLAG=()
+if [[ "${UNIQUE_SCENES}" == "1" ]]; then
+  UNIQUE_SCENES_FLAG=(--unique_scenes)
+fi
+
 python -m vggt_qwen3.inference.qa_inference \
   --config "${CONFIG}" \
   --checkpoint_dir "${CHECKPOINT_DIR}" \
@@ -71,4 +78,5 @@ python -m vggt_qwen3.inference.qa_inference \
   --output_jsonl "${OUTPUT_JSONL}" \
   --device "${DEVICE}" \
   "${BASE_FALLBACK_FLAG[@]}" \
-  "${SHORT_FLAG[@]}"
+  "${SHORT_FLAG[@]}" \
+  "${UNIQUE_SCENES_FLAG[@]}"

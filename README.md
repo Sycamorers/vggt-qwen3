@@ -271,7 +271,6 @@ python -m vggt_qwen3.inference.qa_inference \
   --config configs/stage1_3d.yaml \
   --checkpoint_dir ckpts/stage1_3d \
   --dataset scanqa \
-  --num_samples 200 \
   --max_new_tokens 32
 ```
 
@@ -299,7 +298,6 @@ python -m vggt_qwen3.inference.qa_inference \
   --config configs/stage1_3d.yaml \
   --checkpoint_dir ckpts/stage1_3d \
   --dataset sqa3d \
-  --num_samples 200 \
   --max_new_tokens 32
 ```
 
@@ -318,7 +316,6 @@ python -m vggt_qwen3.inference.qa_inference \
   --config configs/stage1_3d.yaml \
   --checkpoint_dir ckpts/stage1_3d \
   --dataset scanqa+sqa3d \
-  --num_samples 200 \
   --max_new_tokens 32
 ```
 
@@ -357,45 +354,6 @@ This combination encourages deterministic, concise answers suitable for exact-ma
 - A companion `*.events.jsonl` file logs:
   - Dataset name, number of samples, number of generations, and how many predictions were non-empty.
   - One event per sample plus a final summary event.
-
-### Published example results
-
-This repository ships small, versioned inference artifacts for reproducibility:
-
-- `results/stage1_scanqa/`
-  - `predictions_test.jsonl` – full ScanQA predictions for a Stage-1 debug checkpoint.
-  - `predictions_test.sample.jsonl` – first 200 predictions for quick inspection.
-  - `metrics.json` – basic metrics (`num_examples`, `num_non_empty_predictions`, `exact_match`).
-  - `command.txt` – exact commands + git commit hash used to generate the run.
-
-- `results/stage1_sqa3d/`
-  - `predictions_test.jsonl` – full SQA3D predictions.
-  - `predictions_test.sample.jsonl` – first 200 predictions.
-  - `metrics.json` – same metric schema as above.
-  - `command.txt` – commands + commit hash.
-
-To regenerate these artifacts on a new machine:
-
-```bash
-# ScanQA
-CHECKPOINT_DIR=ckpts/stage1_3d_debug \
-OUTPUT_JSONL=outputs/qa/scanqa_predictions_test.jsonl \
-scripts/infer_stage1_scanqa.sh
-
-scripts/eval_scanqa.sh \
-  --predictions outputs/qa/scanqa_predictions_test.jsonl \
-  --output_dir results/stage1_scanqa
-
-# SQA3D
-CHECKPOINT_DIR=ckpts/stage1_3d_debug \
-OUTPUT_JSONL=outputs/qa/sqa3d_predictions_test.jsonl \
-DATASET=sqa3d \
-./infer_stage1.sh
-
-scripts/eval_scanqa.sh \
-  --predictions outputs/qa/sqa3d_predictions_test.jsonl \
-  --output_dir results/stage1_sqa3d
-```
 
 For more detailed evaluation beyond exact match, see `docs/evaluation.md`.
 

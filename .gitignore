@@ -61,6 +61,7 @@ env/.conda/
 ckpts/
 outputs/
 logs/
+results/
 *.pyc
 __pycache__/
 *.egg-info/

@@ -5,7 +5,7 @@ The main entrypoint for ScanQA/SQA3D inference is:
 - `src/vggt_qwen3/inference/qa_inference.py`
 - Shell wrappers:
   - `infer_stage1.sh`
-  - `scripts/infer_stage1_scanqa.sh`
+  - `src/scripts/infer_stage1_scanqa.sh`
 
 ### Quickstart: ScanQA
 
@@ -16,16 +16,16 @@ and processed ScanQA test data:
 cd /path/to/vggt-qwen3-roomplan
 
 CHECKPOINT_DIR=ckpts/stage1_3d_debug \
-OUTPUT_JSONL=outputs/qa/scanqa_predictions_test.jsonl \
-scripts/infer_stage1_scanqa.sh
+OUTPUT_JSONL=outputs/qa/scanqa/scanqa_predictions_test.jsonl \
+src/scripts/infer_stage1_scanqa.sh
 ```
 
 This will:
 
 - Load Qwen3‑4B and the VGGT backbone.
 - Convert the DeepSpeed ZeRO checkpoint to a single fp32 state dict.
-- Run QA on ScanQA test scenes.
-- Write predictions to `outputs/qa/scanqa_predictions_test.jsonl`.
+- Run QA on all ScanQA test QA pairs.
+- Write predictions to `outputs/qa/scanqa/scanqa_predictions_test.jsonl`.
 
 You will also see a one‑line checkpoint summary:
 
@@ -42,7 +42,7 @@ Key CLI options (see `parse_args()` in `qa_inference.py`):
 - `--glob` — override default JSONL glob.
 - `--checkpoint_dir` — Stage‑1 checkpoint root (e.g. `ckpts/stage1_3d_debug`).
 - `--allow_base_fallback` — allow running with base weights if checkpoint is missing.
-- `--num_samples` — maximum number of unique scenes to evaluate.
+- `--num_samples` — optional cap on the number of records to evaluate (0 = all).
 - `--max_new_tokens` — generation length.
 - `--output_jsonl` — where to write predictions.
 - `--short_answer_only` — postprocess outputs to enforce short answers.
@@ -61,4 +61,3 @@ Predictions JSONL schema:
 - `question` — input question text.
 - `prediction` — model answer.
 - `reference` — reference answer from the dataset (if available).
-
