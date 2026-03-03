@@ -19,7 +19,7 @@ Multi-view RGB images  ─▶  VGGT aggregator (frozen)
                             │
                             │  (token-level injection at `<image>`)
                             ▼
-                 Qwen3-4B (LoRA, partial freezing)
+                 Qwen3-4B (full fine-tune in current Stage-1 code)
                             │
                             ▼
                        Textual answer
@@ -67,9 +67,9 @@ Key points:
   - `num_vis_tokens` is configured in `configs/stage1_3d.yaml`.
   - `hidden_size` matches Qwen3-4B’s embedding dimension.
 
-Only projector and downstream language layers are trained in Stage 1 (VGGT is frozen).
+By default, VGGT is frozen while projector/geom modules and the full Qwen3 text model are trained in Stage 1.
 
-## 4. Qwen3-4B integration with LoRA
+## 4. Qwen3-4B integration (current implementation)
 
 Implementation: `vggt_qwen3.models.vggt_qwen3_vlm.VGGTQwen3VLM`
 
@@ -77,10 +77,10 @@ Implementation: `vggt_qwen3.models.vggt_qwen3_vlm.VGGTQwen3VLM`
 - Tokenizer: loaded from the same identifier; we ensure:
   - `pad_token` is set (falls back to `eos_token` if missing).
   - A dedicated `<image>` token is present (added if missing).
-- LoRA and partial freezing:
+- Current training behavior:
   - Stage-1 config includes a `lora` block and `freeze_text_layers` list.
-  - LoRA is applied to selected attention projections (`q_proj`, `k_proj`, `v_proj`, `o_proj`) via the training harness.
-  - Lower Transformer layers can be kept frozen to stabilize training and reduce memory.
+  - In the current revision, `src/vggt_qwen3/train/stage1.py` does not read/apply those fields.
+  - Qwen3 parameters therefore remain trainable and are optimized in the base parameter group (full-parameter fine-tuning).
 
 The key integration point is the **embedding swap**: visual tokens overwrite the text embeddings at the `<image>` placeholder position in the input sequence.
 
@@ -211,9 +211,9 @@ Current Stage-1 setup has the following limitations:
   - Stage 1 is optimized for short answers (single word or phrase).
   - Inference defaults (prompt suffix and generation settings) are tuned for exact-match metrics, not for long-form explanation.
 
-- **Frozen VGGT and partially frozen Qwen3**
-  - Stage-1 training does not fine-tune VGGT.
-  - Selected Qwen3 layers may be frozen, and LoRA is applied on top; fully fine-tuning the entire language model is out of scope for this stage.
+- **Frozen VGGT and full Qwen3 fine-tune (current implementation)**
+  - Stage-1 training does not fine-tune VGGT by default (`model.freeze_vision: true`).
+  - Qwen3 is currently fine-tuned end-to-end (no LoRA/PEFT adapters applied).
 
 ## 8. Configuration reference (Stage 1)
 
@@ -234,7 +234,7 @@ Key config fields in `configs/stage1_3d.yaml`:
 - `model.freeze_vision`
   - If `true`, VGGT weights are frozen.
 - `model.freeze_text_layers`
-  - Optional list of lower Qwen3 layer indices to keep frozen.
+  - Present in `configs/stage1_3d.yaml`, but currently unused by `src/vggt_qwen3/train/stage1.py`.
 - `data.datasets`
   - JSONL globs for ScanQA and SQA3D.
 - `data.num_views`
@@ -252,9 +252,8 @@ Key config fields in `configs/stage1_3d.yaml`:
 - `train.lr`, `train.proj_lr`
   - Learning rates for base parameters and projector/geom head.
 - `lora.*`
-  - LoRA rank, alpha, dropout, and target modules.
+  - Present in `configs/stage1_3d.yaml`, but currently unused by `src/vggt_qwen3/train/stage1.py`.
 
 For detailed debugging history (e.g., injection span bugs and fixes), see:
 
 - `docs/dev/debug_history.md`
-

@@ -7,7 +7,7 @@ This log tracks all debugging and hardening work for **Stage 1** of the VGGT-Qwe
 **Ground-truth Stage-1 pipeline**
 - Multi-view images → VGGT aggregator (frozen) → Perceiver projector
 - Geometry tokens are **bypassed in Stage 1**
-- Projected visual tokens → Qwen3-4B (LoRA) via token-level injection
+- Projected visual tokens → Qwen3-4B (full-parameter fine-tune in current code) via token-level injection
 - Causal LM objective with teacher forcing: labels are `-100` for prompt and padding; loss is computed only on answer tokens.
 
 **Key injection mechanism**

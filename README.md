@@ -19,7 +19,7 @@ Multi-view Images
 
 - VGGT: multi-view visual aggregator, kept frozen in Stage 1.
 - Perceiver projector: maps VGGT features to a fixed-length sequence of visual tokens in Qwen3’s hidden dimension.
-- Qwen3-4B: causal LM, partially frozen + LoRA, trained to produce short answers.
+- Qwen3-4B: causal LM loaded via `AutoModelForCausalLM.from_pretrained(...)` and fine-tuned end-to-end in Stage 1 (no LoRA/PEFT injection in current code).
 - Token-level injection: visual tokens overwrite embeddings at the `<image>` placeholder in the prompt; loss is computed only on answer tokens.
 
 For a deeper architectural description (including label masking and injection span rules), see:
@@ -37,11 +37,25 @@ For a deeper architectural description (including label masking and injection sp
   - Model name, Perceiver config, number of visual/geom tokens.
   - Dataset mix, views, sequence length.
   - Optimizer and scheduler parameters.
+  - `configs/stage1_3d.yaml` contains `lora:` and `model.freeze_text_layers`, but these fields are currently not applied by `src/vggt_qwen3/train/stage1.py`.
 - Canonical entry points:
   - `train_stage1.sh` / `python -m vggt_qwen3.train.stage1`
   - `infer_stage1.sh` / `python -m vggt_qwen3.inference.qa_inference`
 
 Stage 2 / RoomPlan JSON actions are not documented here beyond brief “future work” mentions.
+
+## Training/Freezing policy (as implemented)
+
+Stage-1 currently fine-tunes Qwen end-to-end (full-parameter fine-tuning) while freezing VGGT by default.
+
+| Component | Trainable? | Notes |
+|---|---|---|
+| VGGT vision backbone | No (default) | Controlled by `model.freeze_vision` in `src/vggt_qwen3/models/vggt_qwen3_vlm.py`; default `true` in `configs/stage1_3d.yaml`. |
+| Perceiver projector | Yes | Included in optimizer with `train.proj_lr` in `src/vggt_qwen3/train/stage1.py`. |
+| `geom_head` | Yes | Included in optimizer with `train.proj_lr` in `src/vggt_qwen3/train/stage1.py`. |
+| Qwen3 text model | Yes | Loaded with `AutoModelForCausalLM.from_pretrained(...)`; parameters remain trainable and are optimized with base `train.lr` (no LoRA/PEFT currently). |
+
+`configs/stage1_3d.yaml` includes `lora:` and `model.freeze_text_layers` fields as placeholders, but the current Stage-1 training harness does not read/apply them.
 
 ## Installation
 
@@ -237,7 +251,7 @@ Internally, `vggt_qwen3.train.stage1`:
 - Builds `VGGTQwen3VLM` with:
   - Frozen VGGT.
   - Perceiver projector.
-  - Qwen3-4B with partial freezing and LoRA.
+  - Qwen3-4B full-parameter fine-tuning (no LoRA/PEFT injection in current code).
 - Splits parameters into base vs projector/geom parameter groups with separate LRs.
 - Uses a cosine LR schedule with warmup.
 - Writes reproducibility metadata under the chosen `--output_dir`:

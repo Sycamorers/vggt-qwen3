@@ -29,7 +29,7 @@ Key entrypoints:
 
 - **Text model (Qwen3‑4B‑Instruct)**  
   - HuggingFace `AutoModelForCausalLM`.  
-  - LoRA fine‑tuned on select attention and MLP projection modules.  
+  - Stage‑1 currently fine‑tunes Qwen end‑to‑end (full parameters).  
   - Extra `<image>` token added to tokenizer.
 
 ### Token flow and loss
@@ -53,8 +53,8 @@ Key entrypoints:
 Configured in `configs/stage1_3d.yaml`:
 
 - Optimizer: `AdamW` on:
-  - Base text + LoRA parameters (learning rate `lr`).
-  - Projector + geometry head (learning rate `proj_lr`).
+  - Base parameters (all trainable parameters not in `projector`/`geom_head`; includes Qwen3 and any unfrozen backbone params) with learning rate `lr`.
+  - Projector + geometry head with learning rate `proj_lr`.
 - Precision: `bf16` (with `Accelerate` mixed precision and DeepSpeed ZeRO‑3).
 - Batch size: `batch_size_per_gpu` × `grad_accum` × `num_gpus`.
 - LR schedule: cosine with warmup:
@@ -62,9 +62,9 @@ Configured in `configs/stage1_3d.yaml`:
 - Regularization:
   - Weight decay `0.1`.
   - Gradient clipping `1.0`.
-- LoRA config:
-  - Rank `16`, alpha `32`, dropout `0.05`.
-  - Target modules: `q_proj`, `k_proj`, `v_proj`, `o_proj`.
+- Config placeholders currently unused by `src/vggt_qwen3/train/stage1.py`:
+  - `model.freeze_text_layers`
+  - `lora.*` (rank, alpha, dropout, target modules)
 
 ### Distributed training
 
@@ -76,8 +76,9 @@ Configured in `configs/stage1_3d.yaml`:
 
 ### Design rationale
 
-- **Frozen VGGT + projector + LoRA** keeps the heavy vision backbone and most
-  of Qwen3 stable while adapting a relatively small parameter subset.
+- **Frozen VGGT + projector + full Qwen fine‑tune** keeps the heavy vision
+  backbone fixed while adapting projector/geom modules at `proj_lr` and Qwen3
+  at base `lr`.
 - This is well‑suited for:
   - Rapid iteration on dataloaders and prompts.
   - Training under ZeRO‑3 with constrained GPU memory.
@@ -86,4 +87,3 @@ Configured in `configs/stage1_3d.yaml`:
   - VGGT‑based multi‑view tokens are usable as conditioning for Qwen3.
   - Simple short‑answer QA prompts over 3D scenes can produce grounded,
     non‑hallucinatory answers after fine‑tuning.
-

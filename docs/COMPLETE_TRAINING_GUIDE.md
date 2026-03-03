@@ -6,7 +6,7 @@ This guide aligns with the current repository state: Qwen3-4B + VGGT, Stage 1 (3
 
 ## 1. Project Overview
 - **Goal:** Train a vision-language model that understands indoor 3D scenes and answers questions; later extend to RoomPlan-style JSON actions.
-- **Pipeline:** VGGT aggregator (frozen) → Perceiver projector (trainable) → optional geometry tokens → Qwen3-4B with LoRA adapters.
+- **Pipeline:** VGGT aggregator (frozen by default) → Perceiver projector (trainable) → optional geometry tokens → Qwen3-4B full-parameter fine-tuning (no LoRA/PEFT injection in current code).
 - **Ready now:** Stage 1 multi-view QA using the existing processed ScanQA/SQA3D JSONL files (single-view per sample, `geom_token: null`).
 - **Not ready yet:** Stage 2 RoomPlan training (structured `action_json` head not implemented; labels are non-text).
 
@@ -62,13 +62,13 @@ If you regenerate data with poses/depth, keep keys `R`, `t`, `K`, `depth_hist` s
 ## 4. Model & Config (Stage 1)
 - **Vision:** VGGT aggregator (frozen) from `third_party/vggt/vggt_1B_commercial.pt`.
 - **Projector:** Perceiver (`configs/perceiver_small.yaml`) – 6 layers, 128 latents to Qwen3 hidden size.
-- **Language:** `Qwen/Qwen3-4B-Instruct-2507` with LoRA on q/k/v/o.
+- **Language:** `Qwen/Qwen3-4B-Instruct-2507` loaded via `AutoModelForCausalLM.from_pretrained(...)` and trained end-to-end in Stage 1.
 - **Geometry head:** Enabled in code but bypassed when `geom_token` is null.
 - **Active config:** `configs/stage1_3d.yaml`
   - Data mix: ScanQA 0.7, SQA3D 0.3
   - `num_views: 8`, `image_size: 448`, `max_length: 512`, `view_dropout: 0.3`
   - Train: `batch_size_per_gpu: 6`, `grad_accum: 32`, `lr: 5e-6`, `proj_lr: 1e-4`, `max_steps: 30000`, `save_every_steps: 1500`
-  - LoRA: rank 16 on q/k/v/o
+  - `lora:` and `model.freeze_text_layers` fields are present as placeholders but are currently unused by `src/vggt_qwen3/train/stage1.py`
 
 ---
 
